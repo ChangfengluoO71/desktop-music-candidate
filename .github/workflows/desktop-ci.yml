@@ -9,7 +9,7 @@ on:
         description: "Windows package version (numeric major.minor.patch)"
         required: true
         type: string
-        default: "0.0.0"
+        default: "0.0.1"
       publish_preview:
         description: "Publish this build as a GitHub prerelease"
         required: true
@@ -45,7 +45,7 @@ jobs:
         run: .\gradlew.bat --no-daemon test --rerun-tasks
 
   installer:
-    name: Build Windows installer artifact
+    name: Build and test Inno Setup installer
     if: github.event_name == 'workflow_dispatch'
     needs: test
     runs-on: windows-latest
@@ -67,20 +67,32 @@ jobs:
         with:
           cache-provider: basic
 
-      - name: Build EXE installer
+      - name: Build app image with bundled runtime
         env:
           PREVIEW_VERSION: ${{ inputs.preview_version }}
         run: |
           if ($env:PREVIEW_VERSION -notmatch '^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$') {
-            throw 'Version must be numeric major.minor.patch, for example 0.0.0.'
+            throw 'Version must be numeric major.minor.patch, for example 0.0.1.'
           }
-          .\gradlew.bat --no-daemon "-PreleaseVersion=$env:PREVIEW_VERSION" packageExe
+          .\gradlew.bat --no-daemon "-PreleaseVersion=$env:PREVIEW_VERSION" createDistributable
+
+      - name: Install Inno Setup 6
+        run: choco install innosetup --yes --no-progress
+
+      - name: Compile and smoke-test installer
+        env:
+          PREVIEW_VERSION: ${{ inputs.preview_version }}
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "installer\setup.iss" "/DMyAppVersion=$env:PREVIEW_VERSION"
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed with exit code $LASTEXITCODE." }
+          $installer = ".\build\installer\DesktopMusicCandidate-$env:PREVIEW_VERSION-Setup.exe"
+          .\scripts\smoke-test-windows-installer.ps1 -InstallerPath $installer
 
       - name: Upload short-lived installer artifact
         uses: actions/upload-artifact@v7
         with:
-          name: desktop-music-candidate-windows-exe-v${{ inputs.preview_version }}-${{ github.sha }}
-          path: build/compose/binaries/main/exe/*.exe
+          name: desktop-music-candidate-inno-setup-v${{ inputs.preview_version }}-${{ github.sha }}
+          path: build/installer/*.exe
           if-no-files-found: error
           retention-days: 7
 
@@ -100,7 +112,7 @@ jobs:
       - name: Download installer artifact
         uses: actions/download-artifact@v8
         with:
-          name: desktop-music-candidate-windows-exe-v${{ inputs.preview_version }}-${{ github.sha }}
+          name: desktop-music-candidate-inno-setup-v${{ inputs.preview_version }}-${{ github.sha }}
           path: release-assets
 
       - name: Publish prerelease and attach installer
@@ -120,4 +132,4 @@ jobs:
           if (-not $installer) {
             throw 'Installer artifact is missing.'
           }
-          gh release create $tag $installer.FullName --repo $env:GITHUB_REPOSITORY --title "Desktop Music Candidate $tag (Preview)" --notes "Initial public preview build. This is an early test release and is not a stable version." --prerelease --latest=false --target $env:GITHUB_SHA
+          gh release create $tag $installer.FullName --repo $env:GITHUB_REPOSITORY --title "Desktop Music Candidate $tag (Preview)" --notes "Windows preview installer built with Inno Setup 6. The installer includes the Java runtime, lets you select the install directory, creates Start Menu and optional desktop shortcuts, and provides an uninstaller. Installation requires administrator approval. The application is an early preview and is not a stable version." --prerelease --latest=false --target $env:GITHUB_SHA

@@ -3,7 +3,8 @@
 ## Requirements
 
 - JDK 25 is the verified build and package runtime for this candidate. The application source/bytecode target remains Java 17; Miuix desktop runtime and native packaging require a newer build JDK.
-- Windows EXE/MSI packaging uses `jpackage` and requires WiX Toolset 3.0 or later on `PATH`.
+- The public Windows setup executable uses Inno Setup 6 and includes the app image and its bundled Java runtime. Building that installer locally requires the Inno Setup compiler (`ISCC.exe`).
+- Gradle's `packageExe` and `packageMsi` tasks remain available for packaging experiments; GitHub preview releases use the Inno Setup installer instead.
 - Gradle dependencies are resolved from Maven Central and Google Maven. Tests use local fixtures and do not require a NetEase account or live network credentials.
 
 ## Commands
@@ -13,12 +14,15 @@ From this directory in Windows PowerShell:
 ```powershell
 .\gradlew.bat --no-daemon test
 .\gradlew.bat --no-daemon run
-.\gradlew.bat --no-daemon packageExe
+.\gradlew.bat --no-daemon createDistributable
+choco install innosetup --yes --no-progress
+& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\setup.iss "/DMyAppVersion=0.0.1"
+.\scripts\smoke-test-windows-installer.ps1 -InstallerPath .\build\installer\DesktopMusicCandidate-0.0.1-Setup.exe
 ```
 
-The lines above are complete PowerShell commands. To build the MSI instead, use `.\gradlew.bat --no-daemon packageMsi`.
+The lines above are complete PowerShell commands. `packageExe` and `packageMsi` are optional Gradle packaging experiments; neither is used for the public preview installer.
 
-Build outputs are under `build/` and are intentionally ignored by Git. Windows installer output is under `build/compose/binaries/main/exe/` or `build/compose/binaries/main/msi/`.
+Build outputs are under `build/` and are intentionally ignored by Git. The app image is under `build/compose/binaries/main/app/DesktopMusicCandidate/`. The Inno Setup executable is written to `build/installer/`.
 
 ## Wrapper integrity
 
@@ -26,4 +30,4 @@ The checked-in Wrapper targets Gradle 9.3.1 from `downloads.gradle.org`. The dis
 
 ## Packaging expectations
 
-The Compose Desktop packaging task builds a Windows installer and an application runtime image from the selected JDK. Before a user-facing release, inspect the generated runtime image's `legal/` notices and the installer on a clean Windows account. A successful `packageExe` task alone does not prove installation, Start Menu launch, upgrade, uninstall or user-data preservation.
+The Compose Desktop `createDistributable` task builds the application image with the selected JDK's bundled runtime. Inno Setup packages that image into a single Windows setup executable. The Windows CI installer smoke test installs into a custom path, checks the launcher and runtime, verifies the Start Menu shortcut, uninstalls, and checks that the test user's AppData marker remains. This does not replace interactive UAC, application startup, or real-user upgrade testing.
