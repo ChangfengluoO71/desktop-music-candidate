@@ -3,6 +3,7 @@ package com.qing.hachimi.desktop
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -58,7 +59,7 @@ class PlaybackCoordinator(
     private val mutex = Mutex()
     private val mutableState = MutableStateFlow(PlaybackState())
     private var loadedPathKey: String? = null
-    private val eventJob: Job = scope.launch {
+    private val eventJob: Job = scope.launch(start = CoroutineStart.UNDISPATCHED) {
         engine.events.collect { event ->
             mutex.withLock {
                 when (event) {
@@ -166,6 +167,16 @@ class PlaybackCoordinator(
 
     suspend fun seek(positionMillis: Long) = mutex.withLock { seekLocked(positionMillis) }
 
+    suspend fun seekBy(deltaMillis: Long) = mutex.withLock {
+        val position = mutableState.value.positionMillis.coerceAtLeast(0L)
+        val target = try {
+            Math.addExact(position, deltaMillis)
+        } catch (_: ArithmeticException) {
+            if (deltaMillis >= 0L) Long.MAX_VALUE else 0L
+        }
+        seekLocked(target)
+    }
+
     suspend fun setVolume(volume: Float) = mutex.withLock {
         val safeVolume = volume.coerceIn(0f, 1f)
         runEngineAction(action = { engine.setVolume(safeVolume) }, onSuccess = { it.copy(volume = safeVolume) })
@@ -207,6 +218,20 @@ class PlaybackCoordinator(
             val nextIndex = if (index < current.queueIndex) current.queueIndex - 1 else current.queueIndex
             mutableState.update { it.copy(queue = nextQueue, queueIndex = nextIndex) }
         }
+    }
+
+    suspend fun moveQueueItem(fromIndex: Int, toIndex: Int) = mutex.withLock {
+        val current = mutableState.value
+        if (fromIndex !in current.queue.indices || toIndex !in current.queue.indices || fromIndex == toIndex) {
+            return@withLock
+        }
+        val reordered = current.queue.toMutableList().apply {
+            add(toIndex, removeAt(fromIndex))
+        }
+        val currentIndex = current.currentTrack?.let { track ->
+            reordered.indexOfFirst { it.pathKey == track.pathKey }
+        } ?: -1
+        mutableState.update { it.copy(queue = reordered, queueIndex = currentIndex) }
     }
 
     suspend fun clearQueue() = mutex.withLock {

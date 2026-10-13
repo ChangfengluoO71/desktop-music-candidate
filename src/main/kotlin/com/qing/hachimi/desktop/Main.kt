@@ -198,6 +198,10 @@ internal fun HachimiDesktopApp(
     MiuixTheme(controller = controller) {
         Row(
             Modifier.fillMaxSize()
+                .then(
+                    if (playerViewModel == null) Modifier
+                    else rememberPlayerKeyboardShortcutModifier { it.perform(playerViewModel) },
+                )
                 .background(MiuixTheme.colorScheme.background),
         ) {
             Column(

@@ -3,10 +3,15 @@ package com.qing.hachimi.desktop
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.moveBy
+import androidx.compose.ui.test.up
 import androidx.compose.ui.test.v2.runComposeUiTest
+import androidx.compose.ui.geometry.Offset
 import org.junit.jupiter.api.Test
 import top.yukonga.miuix.kmp.theme.ColorSchemeMode
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -48,6 +53,81 @@ class PlayerScreensTest {
         onNodeWithTag("player-open-now-playing").performClick()
         assertEquals(1, toggles)
         assertEquals(1, opens)
+    }
+
+    @OptIn(ExperimentalTestApi::class)
+    @Test
+    fun `queue controls request an adjacent move for the selected item`() = runComposeUiTest {
+        val first = testTrack()
+        val second = testTrack().copy(id = "second", pathKey = "c:/music/second.mp3", title = "Second")
+        val third = testTrack().copy(id = "third", pathKey = "c:/music/third.mp3", title = "Third")
+        var requestedMove: Pair<Int, Int>? = null
+        setContent {
+            MiuixTheme(controller = ThemeController(ColorSchemeMode.System)) {
+                PlayerQueueContent(
+                    playback = PlaybackState(queue = listOf(first, second, third), queueIndex = 0, currentTrack = first),
+                    onPlayIndex = {},
+                    onMoveQueueItem = { from, to -> requestedMove = from to to },
+                    onRemove = {},
+                    onClear = {},
+                )
+            }
+        }
+
+        onNodeWithTag("queue-move-up-second").assertIsDisplayed().performClick()
+        assertEquals(1 to 0, requestedMove)
+        onNodeWithTag("queue-move-down-second").assertIsDisplayed().performClick()
+        assertEquals(1 to 2, requestedMove)
+    }
+
+    @OptIn(ExperimentalTestApi::class)
+    @Test
+    fun `queue move buttons are disabled at their respective ends`() = runComposeUiTest {
+        val first = testTrack()
+        val second = testTrack().copy(id = "second", pathKey = "c:/music/second.mp3", title = "Second")
+        setContent {
+            MiuixTheme(controller = ThemeController(ColorSchemeMode.System)) {
+                PlayerQueueContent(
+                    playback = PlaybackState(queue = listOf(first, second), queueIndex = 0, currentTrack = first),
+                    onPlayIndex = {},
+                    onMoveQueueItem = { _, _ -> },
+                    onRemove = {},
+                    onClear = {},
+                )
+            }
+        }
+
+        onNodeWithTag("queue-move-up-${first.id}").assertIsNotEnabled()
+        onNodeWithTag("queue-move-down-${second.id}").assertIsNotEnabled()
+    }
+
+    @OptIn(ExperimentalTestApi::class)
+    @Test
+    fun `long pressing and dragging a queue handle requests reorder`() = runComposeUiTest {
+        val first = testTrack()
+        val second = testTrack().copy(id = "second", pathKey = "c:/music/second.mp3", title = "Second")
+        val third = testTrack().copy(id = "third", pathKey = "c:/music/third.mp3", title = "Third")
+        var requestedMove: Pair<Int, Int>? = null
+        setContent {
+            MiuixTheme(controller = ThemeController(ColorSchemeMode.System)) {
+                PlayerQueueContent(
+                    playback = PlaybackState(queue = listOf(first, second, third), queueIndex = 0, currentTrack = first),
+                    onPlayIndex = {},
+                    onMoveQueueItem = { from, to -> requestedMove = from to to },
+                    onRemove = {},
+                    onClear = {},
+                )
+            }
+        }
+
+        onNodeWithTag("queue-drag-handle-${second.id}").performTouchInput {
+            down(center)
+            advanceEventTime(viewConfiguration.longPressTimeoutMillis)
+            moveBy(Offset(0f, 110f))
+            up()
+        }
+
+        assertEquals(1 to 2, requestedMove)
     }
 
     private fun testTrack() = LocalTrack(

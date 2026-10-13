@@ -73,12 +73,14 @@ class PlayerViewModel(
     fun playTracks(tracks: List<LocalTrack>) = scope.launch { restored.await(); coordinator.playTracks(tracks) }
     fun enqueue(tracks: List<LocalTrack>) = scope.launch { restored.await(); coordinator.enqueue(tracks) }
     fun playQueueIndex(index: Int) = scope.launch { restored.await(); coordinator.playIndex(index) }
+    fun moveQueueItem(fromIndex: Int, toIndex: Int) = scope.launch { restored.await(); coordinator.moveQueueItem(fromIndex, toIndex) }
     fun removeFromQueue(index: Int) = scope.launch { restored.await(); coordinator.removeFromQueue(index) }
     fun clearQueue() = scope.launch { restored.await(); coordinator.clearQueue() }
     fun togglePlayback() = scope.launch { restored.await(); coordinator.togglePlayback() }
     fun next() = scope.launch { restored.await(); coordinator.next() }
     fun previous() = scope.launch { restored.await(); coordinator.previous() }
     fun seek(positionMillis: Long) = scope.launch { restored.await(); coordinator.seek(positionMillis) }
+    fun seekBy(deltaMillis: Long) = scope.launch { restored.await(); coordinator.seekBy(deltaMillis) }
     fun setVolume(volume: Float) = scope.launch { restored.await(); coordinator.setVolume(volume) }
     fun setShuffle(enabled: Boolean) = scope.launch { restored.await(); coordinator.setShuffle(enabled) }
     fun setRepeatMode(mode: PlaybackRepeatMode) = scope.launch { restored.await(); coordinator.setRepeatMode(mode) }

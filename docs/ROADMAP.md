@@ -1,6 +1,6 @@
 # DMC product roadmap
 
-Status snapshot: 2026-10-13. See [current project status](PROJECT-STATUS.md) for repository and preview-build facts. Player P1 is in progress: the first local playback/UI slice is implemented, while real audio-device and installed-Inno acceptance remain open. Detailed phases and gates are in [PLAYER-P1.md](PLAYER-P1.md).
+Status snapshot: 2026-10-13. See [current project status](PROJECT-STATUS.md) for repository and preview-build facts. Player P1 is in progress: local playback/UI, queue reorder, and focus-safe shortcuts are implemented and automated; real audio-device and installed-Inno acceptance remain open. Detailed phases and gates are in [PLAYER-P1.md](PLAYER-P1.md).
 
 ## P0 — Independent product foundation
 
@@ -11,8 +11,8 @@ Status snapshot: 2026-10-13. See [current project status](PROJECT-STATUS.md) for
 
 ## P1 — Offline local player and music manager
 
-- Implemented: OpenJFX Media behind a provider-free Kotlin interface; local queue and transport UI; mini-player; Now Playing lyric/queue view; cover wall; opt-in folder watching; synthetic MP3, AAC-LC/M4A and PCM WAV load tests.
-- Remaining: audible output and transport testing in a real Windows window; inspect the installed Inno package via CI; verify packaged license notices; determine whether to adopt a FLAC-capable backend; finish shortcuts, queue reorder, resize/high-DPI and source-file immutability acceptance.
+- Implemented: OpenJFX Media behind a provider-free Kotlin interface; local queue and transport UI; mini-player; Now Playing lyric/queue view; cover wall; opt-in folder watching; synthetic MP3, AAC-LC/M4A and PCM WAV load tests; queue drag/button reorder; focus-safe player shortcuts.
+- Remaining: audible output and transport testing in a real Windows window; inspect the installed Inno package via CI; verify packaged license notices; determine whether to adopt a FLAC-capable backend; resize/high-DPI and source-file immutability acceptance.
 - The current backend does not support FLAC. Scanner extension recognition is not evidence of decoder support.
 - Detailed implementation status and gates: [Player P1 plan](PLAYER-P1.md).
 

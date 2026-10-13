@@ -154,6 +154,7 @@ private fun PlayerNowPlayingDialog(viewModel: PlayerViewModel) {
     ) {
         Row(
             Modifier.fillMaxSize()
+                .then(rememberPlayerKeyboardShortcutModifier { it.perform(viewModel) })
                 .background(MiuixTheme.colorScheme.background)
                 .padding(24.dp),
             horizontalArrangement = Arrangement.spacedBy(24.dp),
@@ -232,26 +233,13 @@ private fun PlayerNowPlayingDialog(viewModel: PlayerViewModel) {
                     }
                 }
                 if (showQueue) {
-                    if (playback.queue.isEmpty()) Text("队列为空。")
-                    LazyColumn(Modifier.fillMaxSize().testTag("now-playing-queue"), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        itemsIndexed(playback.queue, key = { _, item -> item.pathKey }) { index, item ->
-                            Row(
-                                Modifier.fillMaxWidth()
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(if (index == playback.queueIndex) MiuixTheme.colorScheme.primary.copy(alpha = 0.12f) else MiuixTheme.colorScheme.background)
-                                    .padding(8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                Column(Modifier.weight(1f).clickable { viewModel.playQueueIndex(index) }) {
-                                    Text(item.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text(item.artists.joinToString().ifBlank { item.album }, style = MiuixTheme.textStyles.body2, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                }
-                                Button(onClick = { viewModel.removeFromQueue(index) }) { Text("移除") }
-                            }
-                        }
-                    }
-                    Button(enabled = playback.queue.isNotEmpty(), onClick = viewModel::clearQueue) { Text("清空队列") }
+                    PlayerQueueContent(
+                        playback = playback,
+                        onPlayIndex = viewModel::playQueueIndex,
+                        onMoveQueueItem = viewModel::moveQueueItem,
+                        onRemove = viewModel::removeFromQueue,
+                        onClear = viewModel::clearQueue,
+                    )
                 } else {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         LyricVariant.entries.forEach { variant ->

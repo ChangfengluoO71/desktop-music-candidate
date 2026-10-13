@@ -1,6 +1,7 @@
 package com.qing.hachimi.desktop
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -9,6 +10,7 @@ import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlin.coroutines.CoroutineContext
 
 class PlaybackCoordinatorTest {
     @Test
@@ -119,6 +121,64 @@ class PlaybackCoordinatorTest {
         }
     }
 
+    @Test
+    fun `manual queue reorder preserves the currently playing track and updates its index`() = runBlocking {
+        val engine = FakePlaybackEngine()
+        val player = PlaybackCoordinator(engine, Dispatchers.Default)
+        val tracks = listOf(track("one"), track("two"), track("three"), track("four"))
+        try {
+            player.enqueue(tracks)
+            player.next()
+
+            player.moveQueueItem(fromIndex = 0, toIndex = 3)
+
+            assertEquals(listOf("two", "three", "four", "one"), player.state.value.queue.map(LocalTrack::id))
+            assertEquals("two", player.state.value.currentTrack?.id)
+            assertEquals(0, player.state.value.queueIndex)
+            assertEquals(listOf("one", "two"), engine.loaded.map(LocalTrack::id))
+
+            player.moveQueueItem(fromIndex = 0, toIndex = 2)
+            assertEquals(listOf("three", "four", "two", "one"), player.state.value.queue.map(LocalTrack::id))
+            assertEquals("two", player.state.value.currentTrack?.id)
+            assertEquals(2, player.state.value.queueIndex)
+            assertEquals(listOf("one", "two"), engine.loaded.map(LocalTrack::id))
+        } finally {
+            player.close()
+        }
+    }
+
+    @Test
+    fun `relative seek moves in either direction and stays within duration`() = runBlocking {
+        val engine = FakePlaybackEngine()
+        val player = PlaybackCoordinator(engine, Dispatchers.Default)
+        try {
+            player.enqueue(listOf(track("one")))
+            engine.emit(PlaybackEvent.Position(positionMillis = 6_000, durationMillis = 10_000))
+            withTimeout(2_000) { player.state.first { it.positionMillis == 6_000L } }
+
+            player.seekBy(5_000)
+            assertEquals(10_000L, player.state.value.positionMillis)
+            assertEquals(10_000L, engine.lastSeek)
+
+            player.seekBy(-50_000)
+            assertEquals(0L, player.state.value.positionMillis)
+            assertEquals(0L, engine.lastSeek)
+        } finally {
+            player.close()
+        }
+    }
+
+    @Test
+    fun `engine event collection is subscribed before coordinator construction returns`() = runBlocking {
+        val engine = FakePlaybackEngine()
+        val player = PlaybackCoordinator(engine, PausedDispatcher())
+        try {
+            assertEquals(1, engine.subscriberCount)
+        } finally {
+            player.close()
+        }
+    }
+
     private fun track(id: String) = LocalTrack(
         id = id,
         pathKey = "C:/music/$id.mp3",
@@ -145,6 +205,7 @@ class PlaybackCoordinatorTest {
     private class FakePlaybackEngine : PlaybackEngine {
         private val mutableEvents = MutableSharedFlow<PlaybackEvent>(extraBufferCapacity = 8)
         override val events = mutableEvents
+        val subscriberCount: Int get() = mutableEvents.subscriptionCount.value
         val loaded = mutableListOf<LocalTrack>()
         var lastSeek = -1L
         var lastVolume = -1f
@@ -157,5 +218,9 @@ class PlaybackCoordinatorTest {
         override suspend fun setVolume(volume: Float) { lastVolume = volume }
         override suspend fun close() = Unit
         fun emit(event: PlaybackEvent) { mutableEvents.tryEmit(event) }
+    }
+
+    private class PausedDispatcher : CoroutineDispatcher() {
+        override fun dispatch(context: CoroutineContext, block: Runnable) = Unit
     }
 }
