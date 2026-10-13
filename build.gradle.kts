@@ -1,5 +1,6 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
+import org.gradle.api.tasks.testing.Test
 
 plugins {
     id("org.jetbrains.kotlin.jvm") version "2.3.21"
@@ -41,8 +42,42 @@ dependencies {
 }
 
 tasks.test {
-    useJUnitPlatform()
+    useJUnitPlatform {
+        excludeTags("native-mpv-poc")
+    }
     jvmArgs("--enable-native-access=ALL-UNNAMED")
+}
+
+tasks.register<Test>("nativeMpvPoc") {
+    group = "verification"
+    description = "Runs local-only libmpv native decoder tests against an explicitly supplied DLL."
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    useJUnitPlatform {
+        includeTags("native-mpv-poc")
+    }
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
+    doFirst {
+        val configuredPath = providers.gradleProperty("mpvLibrary").orNull
+            ?: error("Pass -PmpvLibrary=<absolute path to libmpv-2.dll> for the local native POC.")
+        val configuredArchive = providers.gradleProperty("mpvArchive").orNull
+            ?: error("Pass -PmpvArchive=<absolute path to the pinned development ZIP> to record its hash.")
+        val libraryInput = file(configuredPath)
+        val archiveInput = file(configuredArchive)
+        check(libraryInput.isAbsolute) { "mpvLibrary must be an absolute path; no PATH lookup is used." }
+        check(archiveInput.isAbsolute) { "mpvArchive must be an absolute path." }
+        val library = libraryInput.canonicalFile
+        val archive = archiveInput.canonicalFile
+        check(library.isFile && library.name.equals("libmpv-2.dll", ignoreCase = true)) {
+            "mpvLibrary must point to an existing absolute libmpv-2.dll; no PATH lookup is used."
+        }
+        check(archive.isFile && archive.extension.equals("zip", ignoreCase = true)) {
+            "mpvArchive must point to the pinned local ZIP archive."
+        }
+        systemProperty("dmc.libmpv.path", library.absolutePath)
+        systemProperty("dmc.libmpv.archive", archive.absolutePath)
+    }
+    testLogging.showStandardStreams = true
 }
 
 tasks.register<JavaExec>("runGuiAcceptance") {
