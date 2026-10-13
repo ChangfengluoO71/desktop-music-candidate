@@ -106,7 +106,7 @@ fun main() = application {
                 exitApplicationNow()
             })
         } else {
-            HachimiDesktopApp(viewModel)
+            HachimiDesktopApp(viewModel, localMusicViewModel)
         }
         if (closeRequested && viewModel != null) {
             DialogWindow(

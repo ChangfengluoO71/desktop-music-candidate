@@ -1,39 +1,44 @@
-# Product roadmap draft
+# DMC product roadmap
 
-## P0 — Independent foundation (this candidate)
+Status snapshot: 2026-10-13. See [current project status](PROJECT-STATUS.md) for repository and preview-build facts. The local player has not been implemented; P1 is a proposed, testable plan documented in [PLAYER-P1.md](PLAYER-P1.md).
 
-- Independent Gradle build, local wrapper and Windows packaging configuration.
-- Neutral candidate identity and separate data/credential scope.
-- Source attribution, dependency snapshot, license inventory and architecture boundaries.
-- Existing Desktop test suite retained.
+## P0 — Independent product foundation
 
-## P1 — Local playback foundation
+- Independent Gradle build, local wrapper, Windows packaging and public GitHub repository.
+- Local music scanning/indexing and optional NetEase discovery/download kept in separate storage and service areas.
+- Source attribution, dependency snapshot, license inventory and a DMC identity decision.
+- The installed preview still uses the earlier `Desktop Music Candidate` runtime identity; see [PRODUCT-IDENTITY.md](PRODUCT-IDENTITY.md).
 
-- Choose and document a Windows/JVM playback backend after an audio format and licensing review.
-- Add provider-free playback controls: play/pause, seek, queue, previous/next, volume and output-device behavior.
-- Add playback-state and supported-codec tests using synthetic fixtures; unsupported formats must be explicit.
+## P1 — Offline local player and music manager
 
-## P2 — Local library experience
+- Add an embeddable playback backend behind a provider-free Kotlin interface.
+- Deliver local-file playback, queue, transport controls, Windows package integration, local timed lyrics and DMC's cover-led library/now-playing experience.
+- Add debounced watching for registered library folders, with full-scan recovery when watcher events overflow or a drive is disconnected.
+- Validate codec/container pairs using real, offline test fixtures; the current scanner's extension recognition is not evidence of decoder support.
+- Complete a short backend and license spike before selecting a native engine. Detailed phases and gates: [Player P1 plan](PLAYER-P1.md).
 
-- Reliable directory watching with debounce, removable roots, scan cancellation and recovery.
-- Album/artist poster wall, cover cache and fast search/filtering over the local index.
-- Fullscreen/now-playing surface with background art and keyboard/media-key support.
+## P2 — Library depth and personalization
 
-## P3 — Lyrics and metadata
+- Faster indexing and search for large libraries; resilient handling of network/removable drives and duplicate roots.
+- Saved views, favorites, playlists and richer album/artist organization.
+- Advanced output-device selection, global media keys and configurable playback behavior after the P1 backend proves stable.
+- Cache invalidation and cover-art quality/performance improvements based on real library measurements.
 
-- Local LRC/embedded lyric parsing, synchronized display and explicit translation/romanization tracks.
-- Keep user tags and local files authoritative; online metadata is optional and attributable.
-- Review write-back, backups and undo before enabling batch tag edits.
+## P3 — Lyrics and library metadata
 
-## P4 — Provider adapters
+- Improve timed translation/romanization alignment, word-level YRC rendering and karaoke-style presentation.
+- Add opt-in metadata edits with backups, diff preview and undo; local user tags remain authoritative.
+- Keep any online lyric or metadata source optional, attributable and clearly separated from local playback.
 
-- Isolate NetEase behind a provider interface; keep login optional and separate from local playback/library services.
-- Introduce provider references separate from local track IDs and migrate old task JSON without losing history.
+## P4 — Online provider boundaries
+
+- Isolate NetEase behind a provider interface; login remains optional and separate from local playback/library services.
+- Introduce provider references distinct from local track identity; migrate existing task JSON without losing history.
 - Add additional providers only through normal authorization and source-specific policy checks.
 
-## P5 — Release engineering
+## P5 — Stable release engineering
 
-- Final name, owned namespace, original icon, stable installer/upgrade identity and data migration policy.
-- Windows clean-machine install, upgrade, uninstall and data-preservation tests.
-- CI tests on every pull request and manual installer artifacts; later add signing, release notes, checksum and update policy after release authorization.
-- Complete LGPL/JRE notices review before public distribution.
+- Complete the DMC runtime-brand migration with stable installer identity and tested data/credential continuity.
+- Test clean install, in-place upgrade and uninstall on supported Windows versions.
+- Keep CI tests on every pull request; use a separate explicitly authorized release workflow for installers.
+- Complete LGPL source/relinking and bundled-runtime notice review for each release.

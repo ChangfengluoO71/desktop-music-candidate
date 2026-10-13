@@ -1,21 +1,25 @@
-# Temporary product identity
+# DMC product identity
 
-The P0 candidate uses a neutral placeholder so the code can build independently while the final public brand remains undecided. The placeholder must not be treated as the final product name.
+Decision recorded: 2026-10-13. **DMC** is the selected product name. This file distinguishes the chosen brand from runtime identifiers that still need a coordinated migration.
 
-| Identity surface | Candidate value | Finalization rule |
+| Identity surface | Current value | DMC status / migration rule |
 |---|---|---|
-| User-visible app name | `Desktop Music Candidate` | Replace after the product name is selected. |
-| GitHub repository slug | `desktop-music-candidate` (proposed) | Create as a private repository only after source/license review. |
-| Gradle root name | `DesktopMusicCandidate` | Align with the chosen repository/product identity. |
-| Gradle group | `org.example.desktopmusic` | Replace `org.example` with a namespace controlled by the product owner. |
-| JVM packages | `com.qing.hachimi.desktop`, `com.qing.hachimi.data.api`, and `com.qing.hachimi.util` remain for source compatibility and provenance | Migrate only after selecting an owned reverse-domain namespace; do not mechanically rename before that decision. |
-| Windows package name | `DesktopMusicCandidate` | Set the final installer/display identity before the first public release. |
-| Windows `upgradeUuid` | `e1b24d8d-f6f8-429b-9f56-7d0c37c8f2b5` | Candidate-only identity. Keep stable for candidate upgrades; decide explicitly whether the public release adopts it or starts a new install identity. |
-| App data | `%APPDATA%\DesktopMusicCandidate`; fallback `~/.config/DesktopMusicCandidate` | Any migration from the old Hachimi profile must be explicit and opt-in. |
-| Credential Manager target | `DesktopMusicCandidate.Session.MUSIC_U` | Keep independent from the old credential target; no credentials are migrated. |
-| Default download folder | `Music\DesktopMusicCandidate` | Decide user-facing folder name and migration behavior before public release. |
-| Logs | stderr prefix `[Desktop Music Candidate]`; no log file is created by this logger | Choose final support/logging behavior and redaction retention rules before release. |
-| Window title | `Desktop Music Candidate` | Align with final display name. |
-| Default icon | Generic Compose/JDK packaging icon; no Hachimi icon copied | Design or commission an original icon before public release. |
+| User-visible product name | DMC in product documents; the installed preview still displays `Desktop Music Candidate` | Update runtime branding in a dedicated release after checking installer upgrades, shortcuts, support text and existing user data. |
+| GitHub repository | `ChangfengluoO71/desktop-music-candidate` (public) | Keep the existing slug for now; renaming the GitHub repository is a separate decision and is not required to use DMC as the product name. |
+| Gradle root name | `DesktopMusicCandidate` | Rename only with the runtime branding migration. |
+| Gradle group | `org.example.desktopmusic` | Replace with a product-owner-controlled reverse-domain namespace before a stable release. |
+| JVM packages | `com.qing.hachimi.desktop`, `com.qing.hachimi.data.api`, `com.qing.hachimi.util` | Retain for now to preserve source provenance and avoid a broad mechanical rename. Plan an explicit package migration if desired. |
+| Windows package / executable | `DesktopMusicCandidate` / `DesktopMusicCandidate.exe` | May receive DMC display branding in a coordinated release. Avoid changing executable identity if it breaks update or shortcut behavior. |
+| Windows `upgradeUuid` / Inno `AppId` | `e1b24d8d-f6f8-429b-9f56-7d0c37c8f2b5` | Preserve this UUID so existing installations can upgrade in place. Do not generate a new one as part of a name-only change. |
+| App data | `%APPDATA%\DesktopMusicCandidate`; fallback `~/.config/DesktopMusicCandidate` | Keep reading the current path. If adopting a DMC path, provide a one-time, tested migration that does not remove the old data before validation. |
+| Credential Manager target | `DesktopMusicCandidate.Session.MUSIC_U` | Keep reading the current target. Credential migration must be explicit, user-scoped, secret-safe and independently tested. |
+| Default download folder | `Music\DesktopMusicCandidate` | A display-name change must not silently redirect or strand existing downloads. |
+| Logs | stderr prefix `[Desktop Music Candidate]`; no log file is created by this logger | Change the prefix with runtime branding; retain the existing redaction policy. |
+| Window title / Start Menu group | `Desktop Music Candidate` | Change to DMC in the coordinated branding release. |
+| Icon | `src/main/resources/dmc-icon.ico` | The preview already packages a DMC icon. Keep the icon independent of upstream Hachimi artwork. |
 
-The separate data directory and credential target prevent the candidate from opening or overwriting the existing Hachimi Desktop profile. This P0 does not migrate old JSON, SQLite, settings or credentials.
+## Boundary
+
+This document-only change updates the declared product name, not the installed application's identifiers. Before runtime renaming, verify an upgrade from the current Inno Setup installation, Start Menu and desktop shortcuts, user-selected install directory, app-data continuity, download destination, and Windows Credential Manager behavior. Keep the existing `upgradeUuid` and `AppId` stable unless a deliberate side-by-side product identity is approved.
+
+DMC is an independent product derived in part from selected MIT-licensed Hachimi JVM API code. It is not presented as an official Hachimi desktop release. See [UPSTREAM.md](../UPSTREAM.md) for source attribution and [THIRD_PARTY.md](../THIRD_PARTY.md) for dependencies.

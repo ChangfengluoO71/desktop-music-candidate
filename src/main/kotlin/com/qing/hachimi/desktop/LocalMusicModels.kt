@@ -43,6 +43,7 @@ data class LocalScanError(
 data class LocalMusicRoot(
     val path: String,
     val addedAtMillis: Long,
+    val autoWatch: Boolean = false,
 )
 
 data class LocalTrack(

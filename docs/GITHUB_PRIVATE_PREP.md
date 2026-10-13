@@ -1,22 +1,24 @@
-# Private GitHub repository and CI
+# Repository and CI status
 
-## Repository metadata
+This file keeps its historical path to avoid breaking older links. It supersedes the earlier private-repository preparation checklist, which is no longer current.
+
+## Current repository
 
 - Repository: `ChangfengluoO71/desktop-music-candidate`
-- Visibility: Private
+- Visibility: public
 - Default branch: `main`
-- Description: `Independent Windows desktop music player and local library candidate`
-- The slug and app identity remain placeholders until the product brand and owned package namespace are selected.
+- Current product name in documentation: DMC. Runtime branding migration is pending; see [PRODUCT-IDENTITY.md](PRODUCT-IDENTITY.md).
+- Current status snapshot and preview evidence: [PROJECT-STATUS.md](PROJECT-STATUS.md).
 
-## Continuous integration
+## CI and preview workflow
 
-`.github/workflows/desktop-ci.yml` runs on pushes and pull requests. It validates the Gradle Wrapper and runs the full test suite on `windows-latest` with Temurin JDK 25. A manually dispatched workflow builds the Windows EXE and uploads it as a seven-day artifact. It does not publish a release, sign installers, or use account credentials.
+`.github/workflows/desktop-ci.yml` runs the Windows test suite on pushes and pull requests with Temurin JDK 25. A manually dispatched workflow can build the Inno Setup installer, run the Windows install/uninstall smoke script, and upload a seven-day artifact. The optional preview-publish step creates a GitHub prerelease and needs `contents: write` only for that job. The workflow does not use NetEase account credentials or sign the installer.
 
-The workflow requests only `contents: read`. Keep signing credentials and NetEase account credentials out of GitHub Actions. Do not upload local app data, credentials, logs, installers, or music files as repository content.
+Keep signing and account credentials out of GitHub Actions. Never add local app data, Windows credentials, logs, installers, downloaded music, test audio output or user-specific databases to the repository.
 
-## Recommended repository controls
+## Remaining repository controls
 
 - Protect `main` against force-push and deletion.
 - Require the Windows tests workflow before merging changes to `main`.
-- Keep release publishing as a separate, explicitly approved workflow.
-- Review dependency license snapshots and packaged JDK legal notices before distributing an installer.
+- Keep preview publishing a deliberate manual action and stable releases separately reviewed.
+- Regenerate dependency/license inventories after playback-engine or native-library changes. Review actual packaged DLLs and their notices, not only Gradle metadata.

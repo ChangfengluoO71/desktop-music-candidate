@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
+import java.sql.DriverManager
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
@@ -56,6 +57,42 @@ class LocalMusicStoreTest {
             assertNotNull(store.recoveryWarning)
             assertTrue(store.loadTracks().isEmpty())
             assertTrue(Files.list(temp).use { paths -> paths.anyMatch { it.fileName.toString().startsWith("library.db.corrupt.") } })
+        }
+    }
+
+    @Test
+    fun `per root monitoring preference persists across restarts`() {
+        val root = Files.createDirectory(temp.resolve("watched"))
+        val database = temp.resolve("library.db")
+        val path = LocalMusicStore(database).use { store ->
+            val registered = store.registerRoot(root)
+            assertFalse(registered.autoWatch)
+            store.setRootAutoWatch(registered.path, true)
+            registered.path
+        }
+
+        LocalMusicStore(database).use { store ->
+            assertTrue(store.loadRoots().single { it.path == path }.autoWatch)
+        }
+    }
+
+    @Test
+    fun `legacy roots table receives disabled auto watch default`() {
+        val root = Files.createDirectory(temp.resolve("legacy"))
+        val database = temp.resolve("legacy.db")
+        DriverManager.getConnection("jdbc:sqlite:$database").use { connection ->
+            connection.createStatement().use { statement ->
+                statement.execute("CREATE TABLE roots(root_path TEXT PRIMARY KEY, added_at INTEGER NOT NULL)")
+                connection.prepareStatement("INSERT INTO roots(root_path, added_at) VALUES(?, 1)").use { insert ->
+                    insert.setString(1, root.toString())
+                    insert.executeUpdate()
+                }
+            }
+        }
+
+        LocalMusicStore(database).use { store ->
+            assertEquals(root.toString(), store.loadRoots().single().path)
+            assertFalse(store.loadRoots().single().autoWatch)
         }
     }
 }

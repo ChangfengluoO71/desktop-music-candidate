@@ -1,6 +1,8 @@
-# Independent product foundation P0 status
+# Historical P0 status snapshot
 
 Date: 2026-10-12
+
+> Historical record only. This snapshot predates creation/publication of the standalone GitHub repository and must not be used as the current Git, release, installation or CI status. Its statements that there was no Git repository/remote and that release/installation work was pending were true only at that snapshot. See [current project status](PROJECT-STATUS.md), [DMC product identity](PRODUCT-IDENTITY.md) and [repository/CI status](GITHUB_PRIVATE_PREP.md).
 
 ## Original worktree
 

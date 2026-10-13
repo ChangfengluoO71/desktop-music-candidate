@@ -47,4 +47,4 @@ flowchart LR
 4. Define provider-neutral lyrics and artwork records. Store source/provenance separately from the editable local tags, so local playback and user tags survive logout or API changes.
 5. Keep authentication inside provider modules. The local scanner, playback engine, local library store and local lyric files must not request a session.
 
-P0 intentionally makes no SQLite or JSON schema change. The candidate uses a new data root, so it cannot mutate the existing profile accidentally.
+P0 intentionally makes no SQLite or JSON schema change. The independent DMC preview uses its own `DesktopMusicCandidate` data root, so it does not mutate the previous Hachimi Desktop profile.

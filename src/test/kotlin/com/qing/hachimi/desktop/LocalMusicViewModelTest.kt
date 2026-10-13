@@ -4,6 +4,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
@@ -85,6 +86,35 @@ class LocalMusicViewModelTest {
             assertTrue(viewModel.state.value.isScanning)
             viewModel.cancelScan()
             withTimeout(5_000) { viewModel.state.first { !it.isScanning } }
+        } finally {
+            viewModel.shutdown()
+        }
+    }
+
+    @Test
+    fun `opt in directory watcher refreshes local index after file changes`() = runBlocking {
+        val root = Files.createDirectory(temp.resolve("watched-music"))
+        val store = LocalMusicStore(temp.resolve("watched.db"))
+        val reader = LocalAudioMetadataReader {
+            LocalAudioMetadata("MP3", AudioLossiness.LOSSY, 10.0, 128, 44_100, 16, "Watched Song", listOf("Artist"), "Album", "Artist", null, null)
+        }
+        val viewModel = LocalMusicViewModel(
+            store = store,
+            scanner = DesktopMusicScanner(store, reader),
+            ioDispatcher = Dispatchers.IO,
+            mainDispatcher = Dispatchers.Default,
+        )
+        try {
+            viewModel.addRoots(listOf(root))
+            val registered = withTimeout(3_000) { viewModel.state.first { it.roots.size == 1 }.roots.single() }
+            viewModel.setRootAutoWatch(registered.path, true)
+            withTimeout(3_000) { viewModel.state.first { it.roots.single().autoWatch } }
+
+            Files.write(root.resolve("watched.mp3"), byteArrayOf(1, 2, 3))
+
+            val updated = withTimeoutOrNull(5_000) { viewModel.state.first { it.tracks.any { track -> track.title == "Watched Song" } } }
+            assertTrue(updated != null, "watch refresh timed out; message=${viewModel.state.value.message}, roots=${viewModel.state.value.roots}, tracks=${viewModel.state.value.tracks.size}")
+            assertEquals(1, updated.tracks.size)
         } finally {
             viewModel.shutdown()
         }

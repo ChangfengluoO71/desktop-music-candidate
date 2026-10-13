@@ -1,6 +1,7 @@
 .gradle/
 .kotlin/
 build/
+graphify-out/
 .idea/
 .vscode/
 *.exe

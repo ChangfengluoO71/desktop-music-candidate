@@ -60,17 +60,30 @@ class LocalMusicStore(private val databasePath: Path) : AutoCloseable {
             statement.setLong(2, addedAt)
             statement.executeUpdate()
         }
-        val storedAt = connection.prepareStatement("SELECT added_at FROM roots WHERE root_path = ?").use { statement ->
+        val rootSettings = connection.prepareStatement("SELECT added_at, auto_watch FROM roots WHERE root_path = ?").use { statement ->
             statement.setString(1, path)
-            statement.executeQuery().use { result -> if (result.next()) result.getLong(1) else addedAt }
+            statement.executeQuery().use { result -> if (result.next()) result.getLong(1) to (result.getInt(2) != 0) else addedAt to false }
         }
-        LocalMusicRoot(path, storedAt)
+        LocalMusicRoot(path, rootSettings.first, rootSettings.second)
+    }
+
+    fun setRootAutoWatch(rootPath: String, enabled: Boolean) = synchronized(monitor) {
+        connection.prepareStatement("UPDATE roots SET auto_watch = ? WHERE root_path = ?").use { statement ->
+            statement.setInt(1, if (enabled) 1 else 0)
+            statement.setString(2, rootPath)
+            statement.executeUpdate()
+        }
+        Unit
     }
 
     fun loadRoots(): List<LocalMusicRoot> = synchronized(monitor) {
         connection.createStatement().use { statement ->
-            statement.executeQuery("SELECT root_path, added_at FROM roots ORDER BY root_path COLLATE NOCASE").use { result ->
-                buildList { while (result.next()) add(LocalMusicRoot(result.getString(1), result.getLong(2))) }
+            statement.executeQuery("SELECT root_path, added_at, auto_watch FROM roots ORDER BY root_path COLLATE NOCASE").use { result ->
+                buildList {
+                    while (result.next()) {
+                        add(LocalMusicRoot(result.getString(1), result.getLong(2), result.getInt(3) != 0))
+                    }
+                }
             }
         }
     }
@@ -185,9 +198,15 @@ class LocalMusicStore(private val databasePath: Path) : AutoCloseable {
             statement.execute(
                 """CREATE TABLE IF NOT EXISTS roots (
                     root_path TEXT PRIMARY KEY,
-                    added_at INTEGER NOT NULL
+                    added_at INTEGER NOT NULL,
+                    auto_watch INTEGER NOT NULL DEFAULT 0
                 )""".trimIndent(),
             )
+            try {
+                statement.execute("ALTER TABLE roots ADD COLUMN auto_watch INTEGER NOT NULL DEFAULT 0")
+            } catch (failure: SQLException) {
+                if (!failure.message.orEmpty().contains("duplicate column name", ignoreCase = true)) throw failure
+            }
             statement.execute(
                 """CREATE TABLE IF NOT EXISTS tracks (
                     path_key TEXT PRIMARY KEY,

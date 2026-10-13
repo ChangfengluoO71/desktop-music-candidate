@@ -1,30 +1,31 @@
-# Desktop Music Candidate
+# DMC
 
-An independent Windows desktop music application candidate for local music browsing and optional online music discovery/downloads.
+DMC is an independent Windows desktop music application focused on a local music library, with optional online discovery and downloads.
 
-## Current scope
+## Current status
 
-- Local music folder scanning, SQLite indexing, metadata inspection and duplicate analysis.
-- Optional NetEase discovery, search, collection import, QR session and download queue.
-- Windows credential storage and HTTPS-constrained online transfer.
-- There is no local audio playback engine yet. The local library can be indexed without login; playback, synced lyrics and an album poster wall are future product work.
+- Local music folder scanning, SQLite indexing, metadata inspection and duplicate analysis are implemented.
+- Optional NetEase discovery, search, collection import, QR session, downloads, lyrics and artwork handling are implemented.
+- Windows credential storage and HTTPS-constrained online transfer are implemented.
+- A local playback engine, playback queue, synced lyric screen and local album poster wall are **not implemented yet**. Their proposed scope and acceptance criteria are in [the Player P1 plan](docs/PLAYER-P1.md).
 
-The local library and online download/session stores are separate. The existing download model is still NetEase-specific; see [the architecture notes](docs/P0-ARCHITECTURE.md).
+The local library can be indexed without login. Local playback is planned to work entirely from local files and remain independent of account/session state. The existing online download model is still NetEase-specific; see [the architecture notes](docs/P0-ARCHITECTURE.md).
 
 ## Build and test
 
-See [BUILDING.md](docs/BUILDING.md) for the JDK, test and Windows packaging commands. The project has its own Gradle Wrapper and does not build against `../app/`.
+See [BUILDING.md](docs/BUILDING.md) for JDK, test and Windows packaging commands. The project has its own Gradle Wrapper and does not build against `../app/`.
 
-## Project notes
+## Project documents
 
+- [Current project status](docs/PROJECT-STATUS.md)
+- [Product identity and migration boundary](docs/PRODUCT-IDENTITY.md)
+- [Player P1 plan](docs/PLAYER-P1.md)
+- [P0 architecture and decoupling notes](docs/P0-ARCHITECTURE.md)
+- [Product roadmap](docs/ROADMAP.md)
 - [Upstream provenance](UPSTREAM.md)
 - [Third-party dependency and license inventory](THIRD_PARTY.md)
-- [Temporary product identity](docs/PRODUCT-IDENTITY.md)
-- [P0 architecture and decoupling plan](docs/P0-ARCHITECTURE.md)
-- [Product roadmap](docs/ROADMAP.md)
-- [Private GitHub and CI preparation](docs/GITHUB_PRIVATE_PREP.md)
-- [Pre-repository source and test file hash manifest](docs/PRE-REPO-MANIFEST-SHA256.txt)
+- [Repository and CI status](docs/GITHUB_PRIVATE_PREP.md)
 
 ## Branding
 
-The name, repository slug, JVM namespace, Windows installer identity and icon are placeholders. No upstream Hachimi logo or restricted official identity is included. Do not describe this candidate as official or publish it under the Hachimi name.
+DMC is the selected product name. The current preview's executable, window title, installer identity, data directory and credential target still use the earlier `Desktop Music Candidate` identity. Those runtime identifiers are intentionally not renamed by this documentation-only change: changing install/data identity requires a coordinated migration plan. DMC is an independent project and is not an official Hachimi Desktop release. No restricted upstream logo or icon is used.

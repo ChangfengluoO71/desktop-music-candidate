@@ -10,6 +10,7 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.v2.runComposeUiTest
 import org.junit.jupiter.api.Test
@@ -47,6 +48,7 @@ class LocalMusicScreenTest {
                     onFormatFilter = { state = state.copy(formatFilter = it) },
                     onArtistFilter = { state = state.copy(artistFilter = it) },
                     onAlbumFilter = { state = state.copy(albumFilter = it) },
+                    onSearchFilter = { state = state.copy(searchFilter = it) },
                 )
             }
         }
@@ -54,12 +56,19 @@ class LocalMusicScreenTest {
         onNodeWithTag("local-music-add-root").assertIsDisplayed()
         onNodeWithTag("local-music-scan").assertIsDisplayed()
         onNodeWithTag("local-music-table").assertIsDisplayed()
+        onNodeWithTag("local-music-album-wall").assertIsDisplayed()
+        onNodeWithTag("local-music-search").assertIsDisplayed()
+        onNodeWithTag("local-music-watch-${"C:\\fixture".hashCode()}").assertIsDisplayed()
         onNodeWithText("Jazz Track").assertIsDisplayed()
         onAllNodesWithTag("local-track-bulk-1199").assertCountEquals(0)
         onNodeWithTag("local-music-artist-filter").performTextInput("Blue")
         onNodeWithText("Jazz Track").assertIsDisplayed()
         onAllNodesWithText("Rock Track").assertCountEquals(0)
         assertEquals(1, state.visibleTracks.size)
+        onNodeWithTag("local-music-search").performTextInput("Rock")
+        assertEquals(0, state.visibleTracks.size)
+        onNodeWithTag("local-album-${first.pathKey.hashCode()}").performClick()
+        assertEquals("Blue Album", state.albumFilter)
     }
 
     private fun testTrack(id: String, title: String, artist: String, album: String) = LocalTrack(

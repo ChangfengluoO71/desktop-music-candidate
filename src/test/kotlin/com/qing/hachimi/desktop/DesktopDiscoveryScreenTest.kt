@@ -24,6 +24,27 @@ import kotlin.test.assertTrue
 class DesktopDiscoveryScreenTest {
     @OptIn(ExperimentalTestApi::class)
     @Test
+    fun `application routes local music navigation to supplied library view model`() = runComposeUiTest {
+        val harness = createHarness()
+        val localRoot = Files.createTempDirectory("dmc-local-library")
+        val localMusicViewModel = LocalMusicViewModel(
+            LocalMusicStore(localRoot.resolve("library.db")),
+            mainDispatcher = Dispatchers.Default,
+        )
+        try {
+            setContent { HachimiDesktopApp(harness.viewModel, localMusicViewModel) }
+
+            onNodeWithTag("nav-local-music").performClick()
+
+            onNodeWithTag("local-music-status").assertIsDisplayed()
+        } finally {
+            localMusicViewModel.shutdown()
+            harness.close()
+        }
+    }
+
+    @OptIn(ExperimentalTestApi::class)
+    @Test
     fun `discovery nav shows daily and playlist cards`() = runComposeUiTest {
         val harness = createHarness()
         try {

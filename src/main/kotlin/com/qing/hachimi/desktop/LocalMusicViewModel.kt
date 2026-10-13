@@ -17,10 +17,12 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
 import java.nio.file.Path
 import java.util.logging.Logger
+import java.util.concurrent.atomic.AtomicBoolean
 
 data class LocalMusicUiState(
     val roots: List<LocalMusicRoot> = emptyList(),
     val tracks: List<LocalTrack> = emptyList(),
+    val searchFilter: String = "",
     val formatFilter: String = "",
     val artistFilter: String = "",
     val albumFilter: String = "",
@@ -35,6 +37,7 @@ data class LocalMusicUiState(
 ) {
     val visibleTracks: List<LocalTrack>
         get() = tracks.asSequence()
+            .filter { searchFilter.isBlank() || it.title.contains(searchFilter.trim(), ignoreCase = true) }
             .filter { formatFilter.isBlank() || it.format.name.contains(formatFilter.trim(), ignoreCase = true) }
             .filter { artistFilter.isBlank() || it.artists.any { artist -> artist.contains(artistFilter.trim(), ignoreCase = true) } }
             .filter { albumFilter.isBlank() || it.album.contains(albumFilter.trim(), ignoreCase = true) }
@@ -60,8 +63,14 @@ class LocalMusicViewModel(
     )
     private var scanJob: Job? = null
     private var duplicateJob: Job? = null
+    private val autoScanRequested = AtomicBoolean(false)
+    private val directoryWatcher = LocalMusicDirectoryWatcher(onChange = { scheduleAutomaticRescan() })
 
     val state: StateFlow<LocalMusicUiState> = mutableState.asStateFlow()
+
+    init {
+        syncDirectoryWatcher()
+    }
 
     fun addRoots(paths: List<Path>) {
         if (paths.isEmpty()) return
@@ -74,6 +83,7 @@ class LocalMusicViewModel(
                     .onFailure { failed++ }
             }
             refreshLibrary()
+            syncDirectoryWatcher()
             mutableState.update {
                 it.copy(message = when {
                     added > 0 && failed == 0 -> "已添加 $added 个目录；原始文件不会被移动或修改。"
@@ -89,11 +99,29 @@ class LocalMusicViewModel(
         scope.launch(ioDispatcher) {
             runCatching { store.removeRoot(path) }
             refreshLibrary()
+            syncDirectoryWatcher()
             mutableState.update { it.copy(message = "已移除目录索引；目录中的音乐文件没有删除。") }
         }
     }
 
+    fun setRootAutoWatch(path: String, enabled: Boolean) {
+        scope.launch(ioDispatcher) {
+            runCatching { store.setRootAutoWatch(path, enabled) }
+            val roots = store.loadRoots()
+            val tracks = store.loadTracks()
+            syncDirectoryWatcher(roots)
+            mutableState.update {
+                it.copy(
+                    roots = roots,
+                    tracks = tracks,
+                    message = if (enabled) "已开启此目录的自动监听；文件变更将合并后重新扫描。" else "已关闭此目录的自动监听。",
+                )
+            }
+        }
+    }
+
     fun setFormatFilter(value: String) = mutableState.update { it.copy(formatFilter = value) }
+    fun setSearchFilter(value: String) = mutableState.update { it.copy(searchFilter = value) }
     fun setArtistFilter(value: String) = mutableState.update { it.copy(artistFilter = value) }
     fun setAlbumFilter(value: String) = mutableState.update { it.copy(albumFilter = value) }
 
@@ -122,11 +150,14 @@ class LocalMusicViewModel(
                         },
                     )
                 }
+                runPendingAutomaticRescan()
             } catch (cancelled: CancellationException) {
                 mutableState.update { it.copy(isScanning = false, progress = null, message = "扫描已取消；原始音乐文件未修改。") }
+                runPendingAutomaticRescan()
                 throw cancelled
             } catch (_: Exception) {
                 mutableState.update { it.copy(isScanning = false, progress = null, message = "扫描失败；已保存的索引仍可使用。") }
+                runPendingAutomaticRescan()
             }
         }
     }
@@ -196,6 +227,7 @@ class LocalMusicViewModel(
         // using the same database even when no scan or duplicate analysis is active.
         val scopeJob = scope.coroutineContext[Job]
         scopeJob?.cancel()
+        directoryWatcher.close()
         val jobs = scopeJob?.children?.toList().orEmpty()
         val allStopped = try {
             withTimeoutOrNull(SHUTDOWN_JOB_JOIN_TIMEOUT_MILLIS) {
@@ -219,6 +251,24 @@ class LocalMusicViewModel(
         val roots = store.loadRoots()
         val tracks = store.loadTracks()
         mutableState.update { it.copy(roots = roots, tracks = tracks) }
+    }
+
+    private fun syncDirectoryWatcher(roots: List<LocalMusicRoot> = state.value.roots) {
+        val watchedRoots = roots.filter(LocalMusicRoot::autoWatch).map { Path.of(it.path) }
+        runCatching { directoryWatcher.start(watchedRoots) }
+            .onFailure { logger.warning("Could not start local music directory watcher: ${it.javaClass.simpleName}") }
+    }
+
+    private fun scheduleAutomaticRescan() {
+        if (state.value.isScanning) {
+            autoScanRequested.set(true)
+            return
+        }
+        scan()
+    }
+
+    private fun runPendingAutomaticRescan() {
+        if (autoScanRequested.getAndSet(false)) scheduleAutomaticRescan()
     }
 
     companion object {
