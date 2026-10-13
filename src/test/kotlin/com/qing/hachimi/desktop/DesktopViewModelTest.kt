@@ -218,7 +218,10 @@ class DesktopViewModelTest {
             val tasks = withTimeout(3_000) { harness.manager.tasks.first { it.isNotEmpty() } }
             assertEquals(listOf(7L), tasks.map { it.songId })
             assertEquals("lossless", tasks.single().requestedQuality)
-            assertTrue(Path.of(tasks.single().filePath).startsWith(Path.of(settings.defaultDownloadDirectory)))
+            assertTrue(
+                Path.of(tasks.single().filePath).parent.toRealPath()
+                    .startsWith(Path.of(settings.defaultDownloadDirectory).toRealPath()),
+            )
             assertFalse(harness.viewModel.ui.value.selectedUserPlaylistIndices.contains(2))
         } finally {
             harness.transfer.release.complete(Unit)

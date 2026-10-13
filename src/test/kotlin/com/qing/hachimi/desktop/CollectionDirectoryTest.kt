@@ -16,7 +16,7 @@ class CollectionDirectoryTest {
             SongHit(1, "Song", "Artist", "Album"),
         )
 
-        assertTrue(directory.startsWith(root.toAbsolutePath().normalize()))
+        assertTrue(directory.toRealPath().startsWith(root.toRealPath()))
         assertTrue(Files.isDirectory(directory))
         assertTrue(directory.toString().contains("_CON"))
     }
@@ -32,7 +32,7 @@ class CollectionDirectoryTest {
             SongHit(2, "Song", "CON", "Album/Disc"),
         )
 
-        assertTrue(directory.startsWith(root.toAbsolutePath().normalize()))
+        assertTrue(directory.toRealPath().startsWith(root.toRealPath()))
         assertTrue(directory.toString().contains("CON - Album_Disc"))
     }
 }

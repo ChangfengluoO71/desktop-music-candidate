@@ -115,7 +115,7 @@ class DesktopArtworkViewModelTest {
             harness.viewModel.savePreviewArtwork(ArtworkSaveKind.SONG)
             val preview = awaitSaved(harness)
 
-            assertTrue(preview.message.orEmpty().contains(custom.toString()))
+            assertTrue(preview.message.orEmpty().contains(custom.toRealPath().toString()))
             assertTrue(Files.isRegularFile(custom.resolve("Artist - Song [42].png")))
         } finally {
             harness.close()

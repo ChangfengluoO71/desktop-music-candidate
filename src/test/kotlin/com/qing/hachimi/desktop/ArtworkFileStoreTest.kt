@@ -64,7 +64,7 @@ class ArtworkFileStoreTest {
             "../Album?", "CON", DesktopSettings(defaultDownloadDirectory = root.toString()), null, ".jpg",
         )
 
-        assertEquals(root, cover.parent)
+        assertEquals(root.toRealPath(), cover.parent.toRealPath())
         assertFalse(cover.fileName.toString().contains("/"))
         assertTrue(cover.fileName.toString().endsWith(".jpg"))
         assertFalse(cover.fileName.toString().contains("?"))
@@ -93,7 +93,7 @@ class ArtworkFileStoreTest {
             song, null, DesktopSettings(defaultDownloadDirectory = root.toString()), null, ".png",
         )
 
-        assertEquals(root.toAbsolutePath().normalize(), cover.parent)
+        assertEquals(root.toRealPath(), cover.parent.toRealPath())
         assertFalse(cover.fileName.toString().contains("..\\"))
         assertTrue(cover.fileName.toString().contains("_NUL"))
     }
