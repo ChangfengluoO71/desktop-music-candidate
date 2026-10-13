@@ -41,6 +41,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.decodeToImageBitmap
+import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogWindow
@@ -75,11 +76,18 @@ fun main() = application {
     val localMusicViewModel = remember(instanceLock) {
         instanceLock?.let { LocalMusicViewModel.createDefault(appDataDirectory) }
     }
+    val appIcon = remember {
+        val iconBytes = requireNotNull(
+            Thread.currentThread().contextClassLoader.getResourceAsStream("dmc-icon.png"),
+        ) { "Missing application icon resource dmc-icon.png" }.use { it.readBytes() }
+        BitmapPainter(iconBytes.decodeToImageBitmap())
+    }
     val exitApplicationNow: () -> Unit = { exitApplication() }
     var closeRequested by remember { mutableStateOf(false) }
     var closing by remember { mutableStateOf(false) }
 
     Window(
+        icon = appIcon,
         onCloseRequest = {
             if (viewModel == null) {
                 instanceLock?.close()

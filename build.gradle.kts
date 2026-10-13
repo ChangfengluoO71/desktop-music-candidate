@@ -95,6 +95,7 @@ compose.desktop {
             windows {
                 // Candidate-only identity. Replace only after the public product brand is approved.
                 upgradeUuid = "e1b24d8d-f6f8-429b-9f56-7d0c37c8f2b5"
+                iconFile.set(project.file("src/main/resources/dmc-icon.ico"))
                 perUserInstall = true
                 menuGroup = "Desktop Music Candidate"
             }
