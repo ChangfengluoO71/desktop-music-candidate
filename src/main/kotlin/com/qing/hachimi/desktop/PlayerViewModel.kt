@@ -70,7 +70,11 @@ class PlayerViewModel(
     }
 
     fun play(track: LocalTrack) = scope.launch { restored.await(); coordinator.play(track) }
+    fun playTracks(tracks: List<LocalTrack>) = scope.launch { restored.await(); coordinator.playTracks(tracks) }
     fun enqueue(tracks: List<LocalTrack>) = scope.launch { restored.await(); coordinator.enqueue(tracks) }
+    fun playQueueIndex(index: Int) = scope.launch { restored.await(); coordinator.playIndex(index) }
+    fun removeFromQueue(index: Int) = scope.launch { restored.await(); coordinator.removeFromQueue(index) }
+    fun clearQueue() = scope.launch { restored.await(); coordinator.clearQueue() }
     fun togglePlayback() = scope.launch { restored.await(); coordinator.togglePlayback() }
     fun next() = scope.launch { restored.await(); coordinator.next() }
     fun previous() = scope.launch { restored.await(); coordinator.previous() }

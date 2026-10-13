@@ -92,8 +92,21 @@ class PlaybackCoordinator(
         }
     }
 
-    suspend fun play(track: LocalTrack) = mutex.withLock {
-        mutableState.value = mutableState.value.copy(queue = listOf(track), queueIndex = -1)
+    suspend fun play(track: LocalTrack) = playTracks(listOf(track))
+
+    suspend fun playTracks(tracks: List<LocalTrack>) = mutex.withLock {
+        val queue = tracks.asSequence().filter { it.pathKey.isNotBlank() }.distinctBy { it.pathKey }.toList()
+        if (queue.isEmpty()) return@withLock
+        mutableState.value = mutableState.value.copy(
+            queue = queue,
+            queueIndex = -1,
+            currentTrack = null,
+            isPlaying = false,
+            positionMillis = 0L,
+            durationMillis = 0L,
+            error = null,
+        )
+        loadedPathKey = null
         startIndexLocked(0)
     }
 

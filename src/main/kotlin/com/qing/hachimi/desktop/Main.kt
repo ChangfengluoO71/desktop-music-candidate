@@ -76,6 +76,15 @@ fun main() = application {
     val localMusicViewModel = remember(instanceLock) {
         instanceLock?.let { LocalMusicViewModel.createDefault(appDataDirectory) }
     }
+    val playerViewModel = remember(localMusicViewModel) {
+        localMusicViewModel?.let { localMusic ->
+            PlayerViewModel(
+                coordinator = PlaybackCoordinator(JavaFxPlaybackEngine()),
+                localMusicViewModel = localMusic,
+                queueStore = PlaybackQueueStore(appDataDirectory.resolve("playback-queue.json")),
+            )
+        }
+    }
     val appIcon = remember {
         val iconBytes = requireNotNull(
             Thread.currentThread().contextClassLoader.getResourceAsStream("dmc-icon.png"),
@@ -106,7 +115,7 @@ fun main() = application {
                 exitApplicationNow()
             })
         } else {
-            HachimiDesktopApp(viewModel, localMusicViewModel)
+            HachimiDesktopApp(viewModel, localMusicViewModel, playerViewModel)
         }
         if (closeRequested && viewModel != null) {
             DialogWindow(
@@ -122,7 +131,7 @@ fun main() = application {
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
                     Text("退出 ${DesktopProductIdentity.DISPLAY_NAME}", style = MiuixTheme.textStyles.headline2)
-                    Text("运行中的任务会暂停并保存进度；重新打开后可以继续。排队任务和下载历史会保留。")
+                    Text("运行中的下载任务会暂停并保存进度；播放设备会释放，播放队列会保存但不会自动播放。")
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Button(
                             enabled = !closing,
@@ -132,8 +141,10 @@ fun main() = application {
                                 shutdownScope.launch {
                                     try {
                                         withContext(Dispatchers.IO) {
+                                            val playerShutdown = async { runCatching { playerViewModel?.close() } }
                                             val desktopShutdown = async { runCatching { viewModel.shutdown() } }
                                             val localMusicShutdown = async { runCatching { localMusicViewModel?.shutdown() } }
+                                            playerShutdown.await()
                                             desktopShutdown.await()
                                             localMusicShutdown.await()
                                         }
@@ -172,7 +183,11 @@ private fun DuplicateInstanceScreen(onExit: () -> Unit) {
 }
 
 @Composable
-internal fun HachimiDesktopApp(viewModel: DesktopViewModel, localMusicViewModel: LocalMusicViewModel? = null) {
+internal fun HachimiDesktopApp(
+    viewModel: DesktopViewModel,
+    localMusicViewModel: LocalMusicViewModel? = null,
+    playerViewModel: PlayerViewModel? = null,
+) {
     val ui by viewModel.ui.collectAsState()
     val settings by viewModel.settings.collectAsState()
     val tasks by viewModel.tasks.collectAsState()
@@ -241,15 +256,18 @@ internal fun HachimiDesktopApp(viewModel: DesktopViewModel, localMusicViewModel:
                     Text(it, color = MiuixTheme.colorScheme.primary)
                 }
                 ui.actionMessage?.let { Text(it) }
-                when (ui.page) {
-                    DesktopPage.DISCOVERY -> DiscoveryScreen(viewModel, ui, settings)
-                    DesktopPage.SEARCH -> SearchScreen(viewModel, ui, settings)
-                    DesktopPage.COLLECTIONS -> CollectionScreen(viewModel, ui, settings, tasks, collectionImports)
-                    DesktopPage.DOWNLOADS -> DownloadsScreen(viewModel, tasks, collectionImports)
-                    DesktopPage.LOCAL_MUSIC -> if (localMusicViewModel != null) LocalMusicScreen(localMusicViewModel)
-                    else Text("本地音乐索引暂时不可用。")
-                    DesktopPage.SETTINGS -> SettingsScreen(viewModel, settings, ui.downloadDiagnosticsEnabled)
+                Box(Modifier.weight(1f).fillMaxWidth()) {
+                    when (ui.page) {
+                        DesktopPage.DISCOVERY -> DiscoveryScreen(viewModel, ui, settings)
+                        DesktopPage.SEARCH -> SearchScreen(viewModel, ui, settings)
+                        DesktopPage.COLLECTIONS -> CollectionScreen(viewModel, ui, settings, tasks, collectionImports)
+                        DesktopPage.DOWNLOADS -> DownloadsScreen(viewModel, tasks, collectionImports)
+                        DesktopPage.LOCAL_MUSIC -> if (localMusicViewModel != null) LocalMusicScreen(localMusicViewModel, playerViewModel)
+                        else Text("本地音乐索引暂时不可用。")
+                        DesktopPage.SETTINGS -> SettingsScreen(viewModel, settings, ui.downloadDiagnosticsEnabled)
+                    }
                 }
+                playerViewModel?.let { PlayerMiniBar(it) }
             }
         }
         ui.artworkPreview?.let { ArtworkPreviewDialog(viewModel, it) }

@@ -1,37 +1,34 @@
 # DMC project status
 
-Snapshot checked: 2026-10-13; P1 implementation in progress.
+Snapshot: 2026-10-13. Player P1 is in progress; this report distinguishes code and automated-test status from installed Windows and audio-device acceptance.
 
 ## Repository and build
 
 - Repository: [ChangfengluoO71/desktop-music-candidate](https://github.com/ChangfengluoO71/desktop-music-candidate), public.
-- Branch: `main`; checked HEAD: `ecaa65b0133ad9220949a3dbdbeb2ffaaa9cb610` (`Use bundled Inno default language`).
-- `origin` points to the repository above. The checked-out `main` still starts at the pre-P1 HEAD shown above; the P1 source and documentation changes in this worktree have not been committed or pushed yet.
-- Latest reviewed successful Windows workflow: [CI run 38342677736](https://github.com/ChangfengluoO71/desktop-music-candidate/actions/runs/38342677736), run #12 on `ecaa65b`. It ran the test suite, built and smoke-tested the Inno Setup installer, and published the preview release.
-- Preview release: [v0.0.1](https://github.com/ChangfengluoO71/desktop-music-candidate/releases/tag/v0.0.1), built as a Windows Inno Setup installer with the Java runtime bundled.
-- A Windows installation was launched in the previous verification pass. This does not establish audio playback acceptance; no native playback engine is bundled yet.
+- Work is on `main`; the previous P1 foundation was published as `6af7c9d`. This follow-up adds the Windows media adapter, player screens, stronger installer smoke checks and matching status documentation.
+- Existing preview: [v0.0.1](https://github.com/ChangfengluoO71/desktop-music-candidate/releases/tag/v0.0.1), built as a Windows Inno Setup installer with a bundled Java runtime. This P1 work does not create a new release.
+- Existing installer identity, user data directory, Git remote, Android source and release/tag are unchanged.
+- Build runtime: JDK 25. The Gradle runtime dependency report includes OpenJFX 25.0.2 Windows artifacts; see `docs/dependency-licenses.csv` and `docs/dependency-tree-runtimeClasspath.txt`.
 
-## Follow-up items
+## Player P1
 
-- GitHub marked Gradle 9.3.1 as out of date in the successful run. This is a non-blocking maintenance notice; review the supported Gradle/Compose/Kotlin matrix before upgrading.
-- Runtime product identity has not yet been migrated from `Desktop Music Candidate` to DMC.
-- Player P1 is underway. Offline core, local cover-wall/search UI and opt-in folder monitoring are implemented. JDK 25 full suite passed (229 tests); `packageExe` built `DesktopMusicCandidate-0.1.2.exe`. There is no playable audio backend, player UI, or installed-package audio acceptance yet.
+- Implemented: local LRC parsing and sidecar loading; durable queue and playback state coordinator; OpenJFX Media adapter; app lifecycle creation/shutdown; queue restoration without auto-play; play/queue actions in the library; mini-player; Now Playing window with artwork, synchronized lyric highlight, original/translation/romanization switching and queue controls; local cover wall/search; opt-in directory monitoring.
+- Media integration tests load synthetic MP3, AAC-LC/M4A and PCM WAV fixtures and read their duration. That verifies the local OpenJFX decoder in this test environment, not audible output.
+- FLAC remains unsupported by OpenJFX Media and is explicitly excluded from this backend's playable formats. The library may still index FLAC files and will report unsupported playback.
+- `createDistributable` succeeded under JDK 25. The app image contains OpenJFX 25.0.2 Windows base/graphics/media JARs; `javafx-media` contains `jfxmedia.dll`; the bundled JDK image includes its `runtime/legal` notices. The Inno script now copies product/dependency license files, and the installer smoke script checks the JavaFX JARs, native decoder, classpath and notices.
+- Not yet accepted: actual sound on a Windows audio device; playback/pause/seek/track-end behavior through a real app window; Inno compile/install smoke (Inno Setup is not installed in this local environment); install/upgrade/uninstall preservation; high-DPI/resize usability; FLAC backend selection.
+- No new release was created. See [PLAYER-P1.md](PLAYER-P1.md) for scope, architecture, format boundaries, and remaining acceptance gates.
 
-## Product status
+## Validation record
 
-- Product documents now use the selected name **DMC**.
-- The current executable, window title, installer identity, data directory and credential target still use `Desktop Music Candidate`. The branding change in this update is documentation-only; runtime migration is deferred and must preserve the existing `upgradeUuid`/`AppId` and user data.
-- Implemented: independent Kotlin/Compose Desktop build; local music scanning, SQLite indexing and duplicate analysis; optional NetEase search/discovery/download/session; Windows credential storage; Inno Setup packaging and CI; local LRC parsing/loading; playback coordinator and queue persistence behind a replaceable engine interface; local artwork resolver; album cover wall and title search; per-root opt-in folder watching with debounced rescans and reconnect checks. `Main.kt` now passes the local music ViewModel to the app, which fixes a previously missing library connection.
-- Not implemented: a distributable audio decoder, app-wired playback ViewModel/mini-player/Now Playing lyric screen, track-to-queue UI actions, and real MP3/FLAC/WAV/M4A playback acceptance. See [PLAYER-P1.md](PLAYER-P1.md).
+- JDK 25 command: `./gradlew.bat --no-daemon test --rerun-tasks` — 233 tests in 41 reports, 0 failures, 0 errors, 0 skipped.
+- JDK 25 command: `./gradlew.bat --no-daemon packageExe` — succeeded and produced the Gradle packaging experiment `DesktopMusicCandidate-0.1.2.exe`.
+- JDK 25 command: `./gradlew.bat --no-daemon createDistributable` — succeeded; inspected app image includes JavaFX Windows runtime JARs and the native media DLL inside `javafx-media`.
+- The local Inno Setup compiler is unavailable, so the installer script and smoke additions have not run locally; the next Windows CI run must confirm compilation and the extended install/uninstall smoke test.
+- Earlier Windows workflow: [CI run 38342677736](https://github.com/ChangfengluoO71/desktop-music-candidate/actions/runs/38342677736), run #12 on `ecaa65b`; this predates the current player integration.
 
-## Current worktree
+## Product identity and remaining work
 
-Before this P1 work, the worktree was clean and `main` matched `origin/main`. Current changes include the previously prepared DMC product docs plus P1 player core, local library UI/store/watcher updates and automated tests. The installer identity, release/tag, remote and Android sources have not been changed. Current validation: JDK 25 full suite 229/229 passed; `packageExe` succeeded and produced the existing app version 0.1.2.
-
-## Next gates
-
-1. Select a reproducible Windows decoding backend and record exact version, license, transitive runtime files, source and hashes; the current mpv development artifact was not suitable to ship.
-2. Implement the playback adapter and wire `PlayerViewModel` into app creation/shutdown.
-3. Add track-to-queue actions, mini-player and Now Playing synced lyric UI; test queue restore without auto-play.
-4. Run clean Windows Inno package acceptance against real MP3, FLAC, WAV and M4A fixtures, including source-file hashes and shutdown.
-5. Keep DMC runtime-brand migration separate until installer upgrade, data directory, Credential Manager and shortcuts are verified.
+- Product documents use the name **DMC**. Runtime executable, window title, installer identity, data directory and Credential Manager target still use `Desktop Music Candidate`; a brand migration is deferred until upgrade and data-preservation tests are prepared.
+- Keep the local player independent from NetEase Song IDs, sessions, cookies and remote URLs. Queue state stores local track paths only.
+- Next: have Windows CI compile the Inno installer and run the extended install/uninstall smoke; complete real Windows audio-device acceptance; decide whether FLAC support is a P1 requirement; then close remaining UI behavior such as keyboard shortcuts, queue reorder and high-DPI layout.

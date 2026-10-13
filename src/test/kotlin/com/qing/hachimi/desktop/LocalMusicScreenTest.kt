@@ -34,6 +34,8 @@ class LocalMusicScreenTest {
                 tracks = listOf(first, second) + bulkTracks,
             ),
         )
+        var playedTrack: LocalTrack? = null
+        var startedTracks: List<LocalTrack>? = null
         setContent {
             MiuixTheme(controller = ThemeController(ColorSchemeMode.System)) {
                 LocalMusicContent(
@@ -49,6 +51,8 @@ class LocalMusicScreenTest {
                     onArtistFilter = { state = state.copy(artistFilter = it) },
                     onAlbumFilter = { state = state.copy(albumFilter = it) },
                     onSearchFilter = { state = state.copy(searchFilter = it) },
+                    onPlayTrack = { playedTrack = it },
+                    onStartTracks = { startedTracks = it },
                 )
             }
         }
@@ -60,6 +64,10 @@ class LocalMusicScreenTest {
         onNodeWithTag("local-music-search").assertIsDisplayed()
         onNodeWithTag("local-music-watch-${"C:\\fixture".hashCode()}").assertIsDisplayed()
         onNodeWithText("Jazz Track").assertIsDisplayed()
+        onNodeWithTag("local-track-play-first").performClick()
+        assertEquals("first", playedTrack?.id)
+        onNodeWithTag("local-music-play-filtered").performClick()
+        assertEquals(1_202, startedTracks?.size)
         onAllNodesWithTag("local-track-bulk-1199").assertCountEquals(0)
         onNodeWithTag("local-music-artist-filter").performTextInput("Blue")
         onNodeWithText("Jazz Track").assertIsDisplayed()

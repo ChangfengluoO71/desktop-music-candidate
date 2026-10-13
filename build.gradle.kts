@@ -31,6 +31,10 @@ dependencies {
     implementation("org.json:json:20240303")
     implementation("net.java.dev.jna:jna:5.19.1")
     implementation("net.jthink:jaudiotagger:3.0.1")
+    // JavaFX Media ships the matching Windows native media runtime with the application.
+    implementation("org.openjfx:javafx-base:25.0.2:win")
+    implementation("org.openjfx:javafx-graphics:25.0.2:win")
+    implementation("org.openjfx:javafx-media:25.0.2:win")
     implementation("org.xerial:sqlite-jdbc:3.53.4.0")
     testImplementation(kotlin("test"))
     testImplementation("org.jetbrains.compose.ui:ui-test-junit4:1.10.3")

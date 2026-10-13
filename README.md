@@ -7,9 +7,9 @@ DMC is an independent Windows desktop music application focused on a local music
 - Local music folder scanning, SQLite indexing, metadata inspection and duplicate analysis are implemented.
 - Optional NetEase discovery, search, collection import, QR session, downloads, lyrics and artwork handling are implemented.
 - Windows credential storage and HTTPS-constrained online transfer are implemented.
-- A local playback engine, playback queue, synced lyric screen and local album poster wall are **not implemented yet**. Their proposed scope and acceptance criteria are in [the Player P1 plan](docs/PLAYER-P1.md).
+- The offline player P1 is partially implemented: OpenJFX-backed local playback, queue controls, mini-player, synchronized local lyrics and the cover wall are wired in. MP3, AAC-LC/M4A and PCM WAV fixtures load in tests; this does not prove audible output. FLAC is not supported by the current backend. See [the Player P1 plan](docs/PLAYER-P1.md) for exact test and installation acceptance status.
 
-The local library can be indexed without login. Local playback is planned to work entirely from local files and remain independent of account/session state. The existing online download model is still NetEase-specific; see [the architecture notes](docs/P0-ARCHITECTURE.md).
+The local library and player operate on local files without login and remain independent of account/session state. The existing online download model is still NetEase-specific; see [the architecture notes](docs/P0-ARCHITECTURE.md).
 
 ## Build and test
 

@@ -39,6 +39,43 @@ try {
     if (-not (Test-Path -LiteralPath $runtimeModules -PathType Leaf) -or -not (Test-Path -LiteralPath $runtimeJvm -PathType Leaf)) {
         throw 'Bundled Java runtime is missing from the installation.'
     }
+    $appDirectory = Join-Path $installDir 'app'
+    $appConfiguration = Join-Path $appDirectory 'DesktopMusicCandidate.cfg'
+    if (-not (Test-Path -LiteralPath $appConfiguration -PathType Leaf)) {
+        throw 'Application classpath configuration is missing from the installation.'
+    }
+    $classpath = Get-Content -LiteralPath $appConfiguration -Raw
+    $javaFxBase = Get-ChildItem -LiteralPath $appDirectory -Filter 'javafx-base-25.0.2-win-*.jar' -File | Select-Object -First 1
+    $javaFxGraphics = Get-ChildItem -LiteralPath $appDirectory -Filter 'javafx-graphics-25.0.2-win-*.jar' -File | Select-Object -First 1
+    $javaFxMedia = Get-ChildItem -LiteralPath $appDirectory -Filter 'javafx-media-25.0.2-win-*.jar' -File | Select-Object -First 1
+    if (-not $javaFxBase -or -not $javaFxGraphics -or -not $javaFxMedia) {
+        throw 'OpenJFX Windows base, graphics, or media runtime is missing from the installation.'
+    }
+    foreach ($javaFxJar in @($javaFxBase, $javaFxGraphics, $javaFxMedia)) {
+        if (-not $classpath.Contains($javaFxJar.Name)) {
+            throw "The application classpath does not reference $($javaFxJar.Name)."
+        }
+    }
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $mediaArchive = [System.IO.Compression.ZipFile]::OpenRead($javaFxMedia.FullName)
+    try {
+        if (-not ($mediaArchive.Entries | Where-Object FullName -EQ 'jfxmedia.dll')) {
+            throw 'OpenJFX media archive does not contain its Windows native decoder.'
+        }
+    }
+    finally {
+        $mediaArchive.Dispose()
+    }
+    foreach ($licensePath in @(
+        (Join-Path $installDir 'licenses\LICENSE'),
+        (Join-Path $installDir 'licenses\THIRD_PARTY.md'),
+        (Join-Path $installDir 'licenses\GPL-2.0.txt'),
+        (Join-Path $installDir 'licenses\Classpath-Exception-2.0.txt')
+    )) {
+        if (-not (Test-Path -LiteralPath $licensePath -PathType Leaf)) {
+            throw "Required bundled license notice is missing: $licensePath"
+        }
+    }
     if (-not (Test-Path -LiteralPath $uninstaller -PathType Leaf)) {
         throw 'Inno Setup uninstaller was not registered in the install directory.'
     }
@@ -69,7 +106,7 @@ try {
         throw 'Uninstall removed user data from APPDATA.'
     }
 
-    Write-Output 'Installer smoke test passed: custom directory, bundled runtime, Start Menu and desktop shortcuts, uninstall, and user-data preservation.'
+    Write-Output 'Installer smoke test passed: custom directory, bundled Java/OpenJFX runtime, media native decoder, license notices, Start Menu and desktop shortcuts, uninstall, and user-data preservation.'
 }
 finally {
     $env:APPDATA = $originalAppData

@@ -31,6 +31,24 @@ class PlaybackCoordinatorTest {
     }
 
     @Test
+    fun `play tracks atomically replaces queue and begins with first unique local track`() = runBlocking {
+        val engine = FakePlaybackEngine()
+        val player = PlaybackCoordinator(engine, Dispatchers.Default)
+        val first = track("first")
+        val second = track("second")
+        try {
+            player.playTracks(listOf(first, second, first))
+
+            assertEquals(listOf("first", "second"), player.state.value.queue.map(LocalTrack::id))
+            assertEquals("first", player.state.value.currentTrack?.id)
+            assertEquals(listOf("first"), engine.loaded.map(LocalTrack::id))
+            assertTrue(player.state.value.isPlaying)
+        } finally {
+            player.close()
+        }
+    }
+
+    @Test
     fun `next and ended events advance queue while repeat one restarts current track`() = runBlocking {
         val engine = FakePlaybackEngine()
         val player = PlaybackCoordinator(engine, Dispatchers.Default)

@@ -44,7 +44,7 @@ import kotlinx.coroutines.withContext
 import javax.swing.JFileChooser
 
 @Composable
-internal fun LocalMusicScreen(viewModel: LocalMusicViewModel) {
+internal fun LocalMusicScreen(viewModel: LocalMusicViewModel, playerViewModel: PlayerViewModel? = null) {
     val state by viewModel.state.collectAsState()
     LocalMusicContent(
         state = state,
@@ -58,6 +58,10 @@ internal fun LocalMusicScreen(viewModel: LocalMusicViewModel) {
         onPreviewUpgrades = viewModel::previewUpgrades,
         onFormatFilter = viewModel::setFormatFilter,
         onSearchFilter = viewModel::setSearchFilter,
+        onPlayTrack = playerViewModel?.let { player -> { track -> player.play(track); Unit } },
+        onQueueTrack = playerViewModel?.let { player -> { track -> player.enqueue(listOf(track)) } },
+        onPlayTracks = playerViewModel?.let { player -> { tracks -> player.enqueue(tracks) } },
+        onStartTracks = playerViewModel?.let { player -> { tracks -> player.playTracks(tracks); Unit } },
         onArtistFilter = viewModel::setArtistFilter,
         onAlbumFilter = viewModel::setAlbumFilter,
     )
@@ -78,6 +82,10 @@ internal fun LocalMusicContent(
     onArtistFilter: (String) -> Unit,
     onAlbumFilter: (String) -> Unit,
     onSearchFilter: (String) -> Unit = {},
+    onPlayTrack: ((LocalTrack) -> Unit)? = null,
+    onQueueTrack: ((LocalTrack) -> Unit)? = null,
+    onPlayTracks: ((List<LocalTrack>) -> Unit)? = null,
+    onStartTracks: ((List<LocalTrack>) -> Unit)? = null,
 ) {
     val albums = state.tracks.filter { it.album.isNotBlank() }
         .groupBy { (it.albumArtist.ifBlank { it.artists.firstOrNull().orEmpty() } + "\u0000" + it.album).lowercase(Locale.ROOT) }
@@ -205,6 +213,19 @@ internal fun LocalMusicContent(
             )
             Text("${state.visibleTracks.size} / ${state.tracks.size} 首")
         }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(
+                modifier = Modifier.testTag("local-music-play-filtered"),
+                enabled = state.visibleTracks.isNotEmpty() && onStartTracks != null,
+                colors = ButtonDefaults.buttonColorsPrimary(),
+                onClick = { onStartTracks?.invoke(state.visibleTracks) },
+            ) { Text("播放筛选曲目") }
+            Button(
+                modifier = Modifier.testTag("local-music-queue-filtered"),
+                enabled = state.visibleTracks.isNotEmpty() && onPlayTracks != null,
+                onClick = { onPlayTracks?.invoke(state.visibleTracks) },
+            ) { Text("筛选曲目加入队列") }
+        }
         HorizontalDivider()
 
         LazyColumn(
@@ -212,7 +233,7 @@ internal fun LocalMusicContent(
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             items(state.visibleTracks, key = { it.id }) { track ->
-                LocalTrackRow(track)
+                LocalTrackRow(track, onPlayTrack, onQueueTrack)
             }
             if (state.visibleTracks.isEmpty()) {
                 item { Text("暂无符合条件的曲目。", modifier = Modifier.padding(12.dp)) }
@@ -267,7 +288,11 @@ private fun LocalArtworkThumbnail(track: LocalTrack) {
 }
 
 @Composable
-private fun LocalTrackRow(track: LocalTrack) {
+private fun LocalTrackRow(
+    track: LocalTrack,
+    onPlayTrack: ((LocalTrack) -> Unit)?,
+    onQueueTrack: ((LocalTrack) -> Unit)?,
+) {
     Column(
         modifier = Modifier.fillMaxWidth().padding(vertical = 7.dp).testTag("local-track-${track.id}"),
         verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -281,6 +306,19 @@ private fun LocalTrackRow(track: LocalTrack) {
         Text(track.audioQuality.summary(), style = MiuixTheme.textStyles.body2)
         track.error?.let { Text("${it.kind} · ${it.summary}") }
         Text(track.filePath, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MiuixTheme.textStyles.body2)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(
+                modifier = Modifier.testTag("local-track-play-${track.id}"),
+                enabled = onPlayTrack != null,
+                colors = ButtonDefaults.buttonColorsPrimary(),
+                onClick = { onPlayTrack?.invoke(track) },
+            ) { Text("播放") }
+            Button(
+                modifier = Modifier.testTag("local-track-queue-${track.id}"),
+                enabled = onQueueTrack != null,
+                onClick = { onQueueTrack?.invoke(track) },
+            ) { Text("加入队列") }
+        }
         HorizontalDivider()
     }
 }
