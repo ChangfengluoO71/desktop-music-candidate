@@ -1,0 +1,6 @@
+* text=auto eol=lf
+*.bat text eol=crlf
+*.jar binary
+*.m4a binary
+*.mp3 binary
+*.flac binary

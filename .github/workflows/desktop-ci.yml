@@ -1,0 +1,68 @@
+name: Desktop CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Windows tests
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Validate Gradle Wrapper
+        uses: gradle/actions/wrapper-validation@v6
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Set up Gradle caching
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-provider: basic
+
+      - name: Run full test suite
+        run: .\gradlew.bat --no-daemon test --rerun-tasks
+
+  installer:
+    name: Build Windows installer artifact
+    if: github.event_name == 'workflow_dispatch'
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Validate Gradle Wrapper
+        uses: gradle/actions/wrapper-validation@v6
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Set up Gradle caching
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-provider: basic
+
+      - name: Build EXE installer
+        run: .\gradlew.bat --no-daemon packageExe
+
+      - name: Upload short-lived installer artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-music-candidate-windows-exe-${{ github.sha }}
+          path: build/compose/binaries/main/exe/*.exe
+          if-no-files-found: error
+          retention-days: 7
