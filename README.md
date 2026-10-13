@@ -7,7 +7,7 @@ DMC is an independent Windows desktop music application focused on a local music
 - Local music folder scanning, SQLite indexing, metadata inspection and duplicate analysis are implemented.
 - Optional NetEase discovery, search, collection import, QR session, downloads, lyrics and artwork handling are implemented.
 - Windows credential storage and HTTPS-constrained online transfer are implemented.
-- The offline player P1 is partially implemented: OpenJFX-backed local playback, queue controls, mini-player, synchronized local lyrics and the cover wall are wired in. MP3, AAC-LC/M4A and PCM WAV fixtures load in tests; this does not prove audible output. FLAC is not supported by the current backend. See [the Player P1 plan](docs/PLAYER-P1.md) for exact test and installation acceptance status.
+- The local player uses libmpv with Windows WASAPI shared output for MP3, FLAC, AAC/M4A, and WAV. The libmpv runtime is not bundled in this preview build; set `dmc.libmpv.path` to an explicit absolute `libmpv-2.dll` path or place the runtime under the app-private `libmpv` folder in `%APPDATA%\DesktopMusicCandidate`. There is no JavaFX or null-output fallback. R2's local Windows acceptance records WASAPI activation and playback-position advancement; a human listening check and installer validation remain separate. JavaFX is retained only as a migration reference until R3. See [the Player P1 plan](docs/PLAYER-P1.md) and [R2 Windows acceptance](docs/testing/libmpv-r2-windows-acceptance.md).
 
 The local library and player operate on local files without login and remain independent of account/session state. The existing online download model is still NetEase-specific; see [the architecture notes](docs/P0-ARCHITECTURE.md).
 

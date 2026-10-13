@@ -90,12 +90,12 @@
 - Locator accepts only a configured absolute `dmc.libmpv.path` or a known application-private DLL path; no PATH lookup.
 - Main constructs `PlaybackCoordinator` with `LibMpvPlaybackEngine`; unavailable native library yields an engine that reports an actionable error and never falls back to JavaFX.
 
-- [ ] Write failing tests for old JSON without `audioOutputMode`, round-trip settings, preserving unrelated settings, and rejecting relative/arbitrary PATH library lookup.
-- [ ] Run focused settings/locator tests and verify the missing behavior causes failures.
-- [ ] Implement backward-compatible JSON read/write, strict native path resolution, unavailable-player error reporting, and wire libmpv as the production engine.
-- [ ] Preserve the current settings screen's other values when settings are saved; expose the fixed shared-output choice/status without adding exclusive mode.
-- [ ] Run settings, locator, and player-view-model regression tests.
-- [ ] Commit as `feat(player): select libmpv for production playback`.
+- [x] Write failing tests for old JSON without `audioOutputMode`, round-trip settings, preserving unrelated settings, and rejecting relative/arbitrary PATH library lookup.
+- [x] Run focused settings/locator tests and verify the missing behavior causes failures.
+- [x] Implement backward-compatible JSON read/write, strict native path resolution, unavailable-player error reporting, and wire libmpv as the production engine.
+- [x] Preserve the current settings screen's other values when settings are saved; expose the fixed shared-output choice/status without adding exclusive mode.
+- [x] Run settings, locator, and player-view-model regression tests.
+- [x] Commit as `feat(player): select libmpv for production playback`.
 
 ### Task 4: Windows shared-output verification and R2 handoff
 

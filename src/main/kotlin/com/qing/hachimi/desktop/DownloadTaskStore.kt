@@ -173,6 +173,9 @@ class DownloadTaskStore(private val file: Path) {
         }.getOrDefault(CoverDirectoryMode.BESIDE_MEDIA),
         customCoverDirectory = optString("customCoverDirectory", ""),
         network = readNetworkSettings(),
+        audioOutputMode = runCatching {
+            AudioOutputMode.valueOf(optString("audioOutputMode", AudioOutputMode.SHARED.name))
+        }.getOrDefault(AudioOutputMode.SHARED),
     )
 
     private fun JSONObject.readNetworkSettings(): DesktopNetworkSettings {
@@ -229,6 +232,7 @@ class DownloadTaskStore(private val file: Path) {
             .put("embedCoverArt", embedCoverArt)
             .put("coverDirectoryMode", coverDirectoryMode.name)
             .put("customCoverDirectory", customCoverDirectory)
+            .put("audioOutputMode", audioOutputMode.name)
             .put("network", JSONObject()
                 .put("mode", network.mode.name)
                 .put("proxyType", network.proxyType.name)

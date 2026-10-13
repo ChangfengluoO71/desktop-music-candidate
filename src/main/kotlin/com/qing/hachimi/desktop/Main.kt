@@ -60,6 +60,8 @@ import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.theme.ColorSchemeMode
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.ThemeController
+import com.qing.hachimi.desktop.libmpv.LibMpvLibraryLocator
+import com.qing.hachimi.desktop.libmpv.LibMpvPlaybackEngine
 import java.util.Locale
 
 fun main() = application {
@@ -76,11 +78,24 @@ fun main() = application {
     val localMusicViewModel = remember(instanceLock) {
         instanceLock?.let { LocalMusicViewModel.createDefault(appDataDirectory) }
     }
-    val playerViewModel = remember(localMusicViewModel) {
-        localMusicViewModel?.let { localMusic ->
+    val playbackEngine = remember(localMusicViewModel, appDataDirectory) {
+        localMusicViewModel?.let {
+            runCatching {
+                LibMpvPlaybackEngine(
+                    LibMpvLibraryLocator.locate(System.getProperty("dmc.libmpv.path"), appDataDirectory),
+                )
+            }.getOrElse { failure ->
+                UnavailablePlaybackEngine(
+                    failure.message ?: "libmpv-2.dll is unavailable. Install the local libmpv runtime to enable playback.",
+                )
+            }
+        }
+    }
+    val playerViewModel = remember(localMusicViewModel, playbackEngine) {
+        if (localMusicViewModel == null || playbackEngine == null) null else {
             PlayerViewModel(
-                coordinator = PlaybackCoordinator(JavaFxPlaybackEngine()),
-                localMusicViewModel = localMusic,
+                coordinator = PlaybackCoordinator(playbackEngine),
+                localMusicViewModel = localMusicViewModel,
                 queueStore = PlaybackQueueStore(appDataDirectory.resolve("playback-queue.json")),
             )
         }
@@ -1217,6 +1232,9 @@ internal fun SettingsScreen(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
+        Text("本地播放器", style = MiuixTheme.textStyles.headline2)
+        Text("音频引擎：libmpv · Windows WASAPI 共享输出（固定）")
+        Text("如果 libmpv 运行库或 Windows 音频设备不可用，播放器会显示错误，不会切换到其他后端。")
         Text("默认下载目录", style = MiuixTheme.textStyles.headline2)
         TextField(
             value = directory,
@@ -1377,6 +1395,7 @@ internal fun SettingsScreen(
                                 coverDirectoryMode = coverMode,
                                 customCoverDirectory = customCoverDirectory.trim(),
                                 network = networkSettings,
+                                audioOutputMode = settings.audioOutputMode,
                             ),
                         )
                     }

@@ -1,6 +1,7 @@
 package com.qing.hachimi.desktop
 
 import java.nio.file.Files
+import org.json.JSONObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -31,6 +32,7 @@ class DownloadTaskStoreTest {
         val raw = Files.readString(path)
         assertEquals(task.id, loaded.tasks.single().id)
         assertEquals(settings, loaded.settings)
+        assertTrue(raw.contains("\"audioOutputMode\":\"SHARED\""))
         assertFalse(raw.contains("private-secret"))
         assertFalse(raw.contains("private-cookie"))
         assertFalse(raw.contains("https://cdn.example"))
@@ -50,6 +52,47 @@ class DownloadTaskStoreTest {
 
         assertEquals(CoverDirectoryMode.BESIDE_MEDIA, settings.coverDirectoryMode)
         assertEquals("", settings.customCoverDirectory)
+    }
+
+    @Test
+    fun `legacy settings without audio output mode default to shared`() {
+        val root = Files.createTempDirectory("dmc-task-store-legacy-audio-output")
+        val file = root.resolve("tasks.json")
+        Files.writeString(file, JSONObject()
+            .put("schemaVersion", 2)
+            .put("tasks", org.json.JSONArray())
+            .put("settings", JSONObject()
+                .put("defaultDownloadDirectory", root.toString())
+                .put("maxConcurrentDownloads", 3)
+                .put("defaultQuality", "lossless"))
+            .toString())
+
+        val settings = DownloadTaskStore(file).load().settings
+
+        assertEquals(AudioOutputMode.SHARED, settings.audioOutputMode)
+        assertEquals(3, settings.maxConcurrentDownloads)
+        assertEquals("lossless", settings.defaultQuality)
+    }
+
+    @Test
+    fun `unknown audio output mode falls back without losing other settings`() {
+        val root = Files.createTempDirectory("dmc-task-store-unknown-audio-output")
+        val file = root.resolve("tasks.json")
+        Files.writeString(file, JSONObject()
+            .put("schemaVersion", 2)
+            .put("tasks", org.json.JSONArray())
+            .put("settings", JSONObject()
+                .put("defaultDownloadDirectory", root.toString())
+                .put("maxConcurrentDownloads", 4)
+                .put("defaultQuality", "standard")
+                .put("audioOutputMode", "EXCLUSIVE"))
+            .toString())
+
+        val settings = DownloadTaskStore(file).load().settings
+
+        assertEquals(AudioOutputMode.SHARED, settings.audioOutputMode)
+        assertEquals(4, settings.maxConcurrentDownloads)
+        assertEquals("standard", settings.defaultQuality)
     }
 
     @Test

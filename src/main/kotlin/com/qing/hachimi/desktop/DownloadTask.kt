@@ -30,6 +30,8 @@ enum class FileConflictPolicy {
     FAIL_IF_EXISTS,
 }
 
+enum class AudioOutputMode { SHARED }
+
 enum class CoverDirectoryMode { BESIDE_MEDIA, CUSTOM_DIRECTORY }
 
 enum class FolderGrouping { NONE, ARTIST_ALBUM, PLAYLIST }
@@ -69,6 +71,7 @@ data class DesktopSettings(
     val coverDirectoryMode: CoverDirectoryMode = CoverDirectoryMode.BESIDE_MEDIA,
     val customCoverDirectory: String = "",
     val network: DesktopNetworkSettings = DesktopNetworkSettings(),
+    val audioOutputMode: AudioOutputMode = AudioOutputMode.SHARED,
 ) {
     init {
         require(maxConcurrentDownloads in 1..8) { "并发数必须在 1 到 8 之间" }
