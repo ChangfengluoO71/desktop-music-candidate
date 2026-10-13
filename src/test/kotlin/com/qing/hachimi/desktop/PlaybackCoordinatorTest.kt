@@ -26,7 +26,7 @@ class PlaybackCoordinatorTest {
             assertEquals(listOf("first", "second"), state.queue.map(LocalTrack::id))
             assertEquals("first", state.currentTrack?.id)
             assertTrue(state.isPlaying)
-            assertEquals(listOf("first"), engine.loaded.map(LocalTrack::id))
+            assertEquals(listOf("first"), engine.loaded.map { it.track.id })
         } finally {
             player.close()
         }
@@ -43,7 +43,7 @@ class PlaybackCoordinatorTest {
 
             assertEquals(listOf("first", "second"), player.state.value.queue.map(LocalTrack::id))
             assertEquals("first", player.state.value.currentTrack?.id)
-            assertEquals(listOf("first"), engine.loaded.map(LocalTrack::id))
+            assertEquals(listOf("first"), engine.loaded.map { it.track.id })
             assertTrue(player.state.value.isPlaying)
         } finally {
             player.close()
@@ -59,14 +59,14 @@ class PlaybackCoordinatorTest {
             player.next()
             assertEquals("two", player.state.value.currentTrack?.id)
 
-            engine.emit(PlaybackEvent.Ended)
+            engine.emit(PlaybackEvent.Ended(engine.currentSessionId()))
             withTimeout(2_000) { player.state.first { !it.isPlaying && it.error == null } }
             assertEquals("two", player.state.value.currentTrack?.id)
 
             player.setRepeatMode(PlaybackRepeatMode.ONE)
             player.playCurrent()
             player.seek(4_000)
-            engine.emit(PlaybackEvent.Ended)
+            engine.emit(PlaybackEvent.Ended(engine.currentSessionId()))
             withTimeout(2_000) { player.state.first { it.isPlaying && it.positionMillis == 0L } }
             assertEquals("two", player.state.value.currentTrack?.id)
         } finally {
@@ -85,7 +85,7 @@ class PlaybackCoordinatorTest {
             assertEquals(0L, engine.lastSeek)
             assertEquals(1f, engine.lastVolume)
 
-            engine.emit(PlaybackEvent.Failed("unsupported codec"))
+            engine.emit(PlaybackEvent.Failed(engine.currentSessionId(), "unsupported codec"))
             val failed = withTimeout(2_000) { player.state.first { it.error != null } }
             assertEquals("unsupported codec", failed.error)
             assertFalse(failed.isPlaying)
@@ -112,7 +112,7 @@ class PlaybackCoordinatorTest {
             assertFalse(player.state.value.isPlaying)
             assertTrue(engine.loaded.isEmpty())
             player.playCurrent()
-            assertEquals(listOf("restored"), engine.loaded.map(LocalTrack::id))
+            assertEquals(listOf("restored"), engine.loaded.map { it.track.id })
             assertEquals(2_500L, engine.lastSeek)
             assertEquals(0.4f, engine.lastVolume)
             assertTrue(player.state.value.isPlaying)
@@ -135,13 +135,13 @@ class PlaybackCoordinatorTest {
             assertEquals(listOf("two", "three", "four", "one"), player.state.value.queue.map(LocalTrack::id))
             assertEquals("two", player.state.value.currentTrack?.id)
             assertEquals(0, player.state.value.queueIndex)
-            assertEquals(listOf("one", "two"), engine.loaded.map(LocalTrack::id))
+            assertEquals(listOf("one", "two"), engine.loaded.map { it.track.id })
 
             player.moveQueueItem(fromIndex = 0, toIndex = 2)
             assertEquals(listOf("three", "four", "two", "one"), player.state.value.queue.map(LocalTrack::id))
             assertEquals("two", player.state.value.currentTrack?.id)
             assertEquals(2, player.state.value.queueIndex)
-            assertEquals(listOf("one", "two"), engine.loaded.map(LocalTrack::id))
+            assertEquals(listOf("one", "two"), engine.loaded.map { it.track.id })
         } finally {
             player.close()
         }
@@ -153,7 +153,7 @@ class PlaybackCoordinatorTest {
         val player = PlaybackCoordinator(engine, Dispatchers.Default)
         try {
             player.enqueue(listOf(track("one")))
-            engine.emit(PlaybackEvent.Position(positionMillis = 6_000, durationMillis = 10_000))
+            engine.emit(PlaybackEvent.Position(engine.currentSessionId(), positionMillis = 6_000, durationMillis = 10_000))
             withTimeout(2_000) { player.state.first { it.positionMillis == 6_000L } }
 
             player.seekBy(5_000)
@@ -206,18 +206,27 @@ class PlaybackCoordinatorTest {
         private val mutableEvents = MutableSharedFlow<PlaybackEvent>(extraBufferCapacity = 8)
         override val events = mutableEvents
         val subscriberCount: Int get() = mutableEvents.subscriptionCount.value
-        val loaded = mutableListOf<LocalTrack>()
+        val loaded = mutableListOf<LoadedTrack>()
+        private var activeSessionId: PlaybackSessionId? = null
         var lastSeek = -1L
         var lastVolume = -1f
 
-        override suspend fun load(track: LocalTrack) { loaded += track }
-        override suspend fun play() = Unit
-        override suspend fun pause() = Unit
-        override suspend fun stop() = Unit
-        override suspend fun seek(positionMillis: Long) { lastSeek = positionMillis }
-        override suspend fun setVolume(volume: Float) { lastVolume = volume }
+        override suspend fun load(track: LocalTrack, sessionId: PlaybackSessionId) {
+            activeSessionId = sessionId
+            loaded += LoadedTrack(track, sessionId)
+        }
+        override suspend fun play(sessionId: PlaybackSessionId) = Unit
+        override suspend fun pause(sessionId: PlaybackSessionId) = Unit
+        override suspend fun stop(sessionId: PlaybackSessionId?) {
+            if (sessionId == null || activeSessionId == sessionId) activeSessionId = null
+        }
+        override suspend fun seek(sessionId: PlaybackSessionId, positionMillis: Long) { lastSeek = positionMillis }
+        override suspend fun setVolume(sessionId: PlaybackSessionId, volume: Float) { lastVolume = volume }
         override suspend fun close() = Unit
         fun emit(event: PlaybackEvent) { mutableEvents.tryEmit(event) }
+        fun currentSessionId() = requireNotNull(activeSessionId)
+
+        data class LoadedTrack(val track: LocalTrack, val sessionId: PlaybackSessionId)
     }
 
     private class PausedDispatcher : CoroutineDispatcher() {

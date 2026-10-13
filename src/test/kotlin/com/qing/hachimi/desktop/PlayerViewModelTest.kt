@@ -101,12 +101,12 @@ class PlayerViewModelTest {
     private class TestEngine : PlaybackEngine {
         override val events = MutableSharedFlow<PlaybackEvent>(extraBufferCapacity = 8)
         val loaded = mutableListOf<LocalTrack>()
-        override suspend fun load(track: LocalTrack) { loaded += track }
-        override suspend fun play() = Unit
-        override suspend fun pause() = Unit
-        override suspend fun stop() = Unit
-        override suspend fun seek(positionMillis: Long) = Unit
-        override suspend fun setVolume(volume: Float) = Unit
+        override suspend fun load(track: LocalTrack, sessionId: PlaybackSessionId) { loaded += track }
+        override suspend fun play(sessionId: PlaybackSessionId) = Unit
+        override suspend fun pause(sessionId: PlaybackSessionId) = Unit
+        override suspend fun stop(sessionId: PlaybackSessionId?) = Unit
+        override suspend fun seek(sessionId: PlaybackSessionId, positionMillis: Long) = Unit
+        override suspend fun setVolume(sessionId: PlaybackSessionId, volume: Float) = Unit
         override suspend fun close() = Unit
     }
 }

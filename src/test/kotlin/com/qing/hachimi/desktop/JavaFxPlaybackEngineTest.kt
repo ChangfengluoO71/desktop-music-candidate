@@ -25,23 +25,26 @@ class JavaFxPlaybackEngineTest {
         val engine = JavaFxPlaybackEngine()
         var wav: Path? = null
         try {
-            engine.load(localTrack(fixture, LocalAudioFormat.MP3))
+            val mp3Session = PlaybackSessionId(1)
+            engine.load(localTrack(fixture, LocalAudioFormat.MP3), mp3Session)
             val position = withTimeout(10_000) {
-                engine.events.first { it is PlaybackEvent.Position && it.durationMillis > 0 } as PlaybackEvent.Position
+                engine.events.first { it is PlaybackEvent.Position && it.sessionId == mp3Session && it.durationMillis > 0 } as PlaybackEvent.Position
             }
             assertTrue(position.durationMillis > 0)
 
             val m4a = Path.of("src/test/resources/audio-fixtures/synthetic-tagged-aac.m4a").toAbsolutePath()
-            engine.load(localTrack(m4a, LocalAudioFormat.M4A))
+            val m4aSession = PlaybackSessionId(2)
+            engine.load(localTrack(m4a, LocalAudioFormat.M4A), m4aSession)
             val m4aPosition = withTimeout(10_000) {
-                engine.events.first { it is PlaybackEvent.Position && it.durationMillis >= 1_000 } as PlaybackEvent.Position
+                engine.events.first { it is PlaybackEvent.Position && it.sessionId == m4aSession && it.durationMillis >= 1_000 } as PlaybackEvent.Position
             }
             assertTrue(m4aPosition.durationMillis >= 1_000)
 
             wav = createPcmWav()
-            engine.load(localTrack(wav, LocalAudioFormat.WAV))
+            val wavSession = PlaybackSessionId(3)
+            engine.load(localTrack(wav, LocalAudioFormat.WAV), wavSession)
             val wavPosition = withTimeout(10_000) {
-                engine.events.first { it is PlaybackEvent.Position && it.durationMillis in 200L..500L } as PlaybackEvent.Position
+                engine.events.first { it is PlaybackEvent.Position && it.sessionId == wavSession && it.durationMillis in 200L..500L } as PlaybackEvent.Position
             }
             assertTrue(wavPosition.durationMillis in 200L..500L)
         } finally {
