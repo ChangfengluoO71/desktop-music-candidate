@@ -8,7 +8,8 @@ plugins {
 }
 
 group = "org.example.desktopmusic"
-version = "0.1.2"
+val releaseVersion = providers.gradleProperty("releaseVersion").orElse("0.1.2").get()
+version = releaseVersion
 
 kotlin {
     compilerOptions { jvmTarget.set(JvmTarget.JVM_17) }

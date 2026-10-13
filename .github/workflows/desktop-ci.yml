@@ -4,6 +4,17 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+    inputs:
+      preview_version:
+        description: "Windows package version (numeric major.minor.patch)"
+        required: true
+        type: string
+        default: "0.0.0"
+      publish_preview:
+        description: "Publish this build as a GitHub prerelease"
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -57,12 +68,56 @@ jobs:
           cache-provider: basic
 
       - name: Build EXE installer
-        run: .\gradlew.bat --no-daemon packageExe
+        env:
+          PREVIEW_VERSION: ${{ inputs.preview_version }}
+        run: |
+          if ($env:PREVIEW_VERSION -notmatch '^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$') {
+            throw 'Version must be numeric major.minor.patch, for example 0.0.0.'
+          }
+          .\gradlew.bat --no-daemon "-PreleaseVersion=$env:PREVIEW_VERSION" packageExe
 
       - name: Upload short-lived installer artifact
         uses: actions/upload-artifact@v7
         with:
-          name: desktop-music-candidate-windows-exe-${{ github.sha }}
+          name: desktop-music-candidate-windows-exe-v${{ inputs.preview_version }}-${{ github.sha }}
           path: build/compose/binaries/main/exe/*.exe
           if-no-files-found: error
           retention-days: 7
+
+  publish-preview:
+    name: Publish GitHub preview release
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_preview
+    needs: installer
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out source to inspect existing release tags
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Download installer artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: desktop-music-candidate-windows-exe-v${{ inputs.preview_version }}-${{ github.sha }}
+          path: release-assets
+
+      - name: Publish prerelease and attach installer
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREVIEW_VERSION: ${{ inputs.preview_version }}
+        run: |
+          $tag = "v$env:PREVIEW_VERSION"
+          $existingTag = git ls-remote --exit-code origin "refs/tags/$tag" 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            throw "Tag $tag already exists; refusing to replace a published version."
+          }
+          if ($LASTEXITCODE -ne 2) {
+            throw "Could not verify whether tag $tag already exists."
+          }
+          $installer = Get-ChildItem release-assets -Filter '*.exe' | Select-Object -First 1
+          if (-not $installer) {
+            throw 'Installer artifact is missing.'
+          }
+          gh release create $tag $installer.FullName --repo $env:GITHUB_REPOSITORY --title "Desktop Music Candidate $tag (Preview)" --notes "Initial public preview build. This is an early test release and is not a stable version." --prerelease --latest=false --target $env:GITHUB_SHA
