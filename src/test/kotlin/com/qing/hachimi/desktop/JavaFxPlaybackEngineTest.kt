@@ -4,6 +4,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.Assumptions.assumeTrue
 import java.io.ByteArrayInputStream
 import java.nio.file.Path
 import java.nio.file.Files
@@ -11,12 +12,15 @@ import javax.sound.sampled.AudioFormat
 import javax.sound.sampled.AudioInputStream
 import javax.sound.sampled.AudioSystem
 import javax.sound.sampled.AudioFileFormat
+import javax.sound.sampled.DataLine
+import javax.sound.sampled.SourceDataLine
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class JavaFxPlaybackEngineTest {
     @Test
     fun `javafx media loads local mp3 fixture and reports its duration`() = runBlocking {
+        assumeTrue(hasAudioOutput(), "OpenJFX media-device integration needs an available system audio output endpoint.")
         val fixture = Path.of("src/test/resources/audio-fixtures/synthetic-tone.mp3").toAbsolutePath()
         val engine = JavaFxPlaybackEngine()
         var wav: Path? = null
@@ -88,5 +92,13 @@ class JavaFxPlaybackEngineTest {
             AudioSystem.write(stream, AudioFileFormat.Type.WAVE, path.toFile())
         }
         return path
+    }
+
+    private fun hasAudioOutput(): Boolean {
+        val format = AudioFormat(44_100f, 16, 1, true, false)
+        val lineInfo = DataLine.Info(SourceDataLine::class.java, format)
+        return AudioSystem.getMixerInfo().any { mixerInfo ->
+            runCatching { AudioSystem.getMixer(mixerInfo).isLineSupported(lineInfo) }.getOrDefault(false)
+        }
     }
 }
