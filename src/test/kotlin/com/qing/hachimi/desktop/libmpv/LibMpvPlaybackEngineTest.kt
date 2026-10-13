@@ -51,6 +51,37 @@ class LibMpvPlaybackEngineTest {
     }
 
     @Test
+    fun `reports the native initialization failure instead of masking it as a closed engine`() = runBlocking {
+        val engine = LibMpvPlaybackEngine(
+            libraryPath = tempDir.resolve("libmpv-2.dll"),
+            clientFactory = MpvClientFactory { throw IllegalStateException("synthetic WASAPI initialization failure") },
+            loadTimeoutMillis = 2_000,
+            outputTimeoutMillis = 100,
+        )
+        try {
+            val failure = runCatching { engine.load(track(), PlaybackSessionId(1)) }.exceptionOrNull()
+            assertTrue(failure?.message.orEmpty().contains("synthetic WASAPI initialization failure"))
+            assertFalse(failure?.message.orEmpty().contains("engine is closed"))
+        } finally {
+            engine.close()
+        }
+    }
+
+    @Test
+    fun `reports native worker failure after initialization`() = runBlocking {
+        val client = FakeMpvClient().apply { waitEventFailure = IllegalStateException("synthetic event-loop failure") }
+        val engine = engine(client)
+        try {
+            client.awaitInitialized()
+            delay(100)
+            val failure = runCatching { engine.load(track(), PlaybackSessionId(1)) }.exceptionOrNull()
+            assertTrue(failure?.message.orEmpty().contains("synthetic event-loop failure"))
+        } finally {
+            engine.close()
+        }
+    }
+
+    @Test
     fun `load waits for matching file loaded event instead of command submission`() = runBlocking {
         val client = FakeMpvClient()
         val engine = engine(client)
@@ -341,6 +372,7 @@ class LibMpvPlaybackEngineTest {
         private val initialized = CompletableDeferred<Unit>()
         private val loadCommands = java.util.concurrent.CopyOnWriteArrayList<Long>()
         private val queuedStopEvents = java.util.concurrent.CopyOnWriteArrayList<MpvNativeEvent>()
+        @Volatile var waitEventFailure: Throwable? = null
         @Volatile private var pollEntered = CountDownLatch(1)
         @Volatile private var pollRelease: CountDownLatch? = null
         @Volatile private var closed = false
@@ -376,6 +408,7 @@ class LibMpvPlaybackEngineTest {
         }
         override fun waitEvent(timeoutMillis: Long): MpvNativeEvent {
             recordCall()
+            waitEventFailure?.let { throw it }
             pollRelease?.let { release ->
                 pollEntered.countDown()
                 release.await()

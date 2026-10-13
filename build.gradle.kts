@@ -43,7 +43,7 @@ dependencies {
 
 tasks.test {
     useJUnitPlatform {
-        excludeTags("native-mpv-poc")
+        excludeTags("native-mpv-poc", "native-mpv-shared")
     }
     jvmArgs("--enable-native-access=ALL-UNNAMED")
 }
@@ -60,6 +60,38 @@ tasks.register<Test>("nativeMpvPoc") {
     doFirst {
         val configuredPath = providers.gradleProperty("mpvLibrary").orNull
             ?: error("Pass -PmpvLibrary=<absolute path to libmpv-2.dll> for the local native POC.")
+        val configuredArchive = providers.gradleProperty("mpvArchive").orNull
+            ?: error("Pass -PmpvArchive=<absolute path to the pinned development ZIP> to record its hash.")
+        val libraryInput = file(configuredPath)
+        val archiveInput = file(configuredArchive)
+        check(libraryInput.isAbsolute) { "mpvLibrary must be an absolute path; no PATH lookup is used." }
+        check(archiveInput.isAbsolute) { "mpvArchive must be an absolute path." }
+        val library = libraryInput.canonicalFile
+        val archive = archiveInput.canonicalFile
+        check(library.isFile && library.name.equals("libmpv-2.dll", ignoreCase = true)) {
+            "mpvLibrary must point to an existing absolute libmpv-2.dll; no PATH lookup is used."
+        }
+        check(archive.isFile && archive.extension.equals("zip", ignoreCase = true)) {
+            "mpvArchive must point to the pinned local ZIP archive."
+        }
+        systemProperty("dmc.libmpv.path", library.absolutePath)
+        systemProperty("dmc.libmpv.archive", archive.absolutePath)
+    }
+    testLogging.showStandardStreams = true
+}
+
+tasks.register<Test>("nativeMpvShared") {
+    group = "verification"
+    description = "Plays local generated fixtures through the real Windows WASAPI shared output."
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    useJUnitPlatform {
+        includeTags("native-mpv-shared")
+    }
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
+    doFirst {
+        val configuredPath = providers.gradleProperty("mpvLibrary").orNull
+            ?: error("Pass -PmpvLibrary=<absolute path to libmpv-2.dll> for Windows shared-output acceptance.")
         val configuredArchive = providers.gradleProperty("mpvArchive").orNull
             ?: error("Pass -PmpvArchive=<absolute path to the pinned development ZIP> to record its hash.")
         val libraryInput = file(configuredPath)
@@ -152,3 +184,9 @@ tasks.matching { it.name in setOf("run", "createRuntimeImage", "packageExe", "pa
             }
         }
     }
+
+tasks.withType<JavaExec>().matching { it.name == "run" }.configureEach {
+    val configuredMpvLibrary = providers.gradleProperty("mpvLibrary")
+        .orElse(providers.systemProperty("dmc.libmpv.path"))
+    configuredMpvLibrary.orNull?.let { systemProperty("dmc.libmpv.path", it) }
+}

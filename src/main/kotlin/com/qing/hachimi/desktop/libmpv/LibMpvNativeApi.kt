@@ -196,48 +196,43 @@ private class JnaMpvClient(libraryPath: Path) : MpvClient {
         }
     }
 
-    private class NativeMpvEvent(pointer: Pointer) : Structure(pointer) {
-        @JvmField var eventId: Int = 0
-        @JvmField var error: Int = 0
-        @JvmField var replyUserdata: Long = 0
-        @JvmField var data: Pointer? = null
+}
 
-        init { read() }
+@Structure.FieldOrder("eventId", "error", "replyUserdata", "data")
+internal class NativeMpvEvent(pointer: Pointer) : Structure(pointer) {
+    @JvmField var eventId: Int = 0
+    @JvmField var error: Int = 0
+    @JvmField var replyUserdata: Long = 0
+    @JvmField var data: Pointer? = null
 
-        override fun getFieldOrder(): List<String> = listOf("eventId", "error", "replyUserdata", "data")
-    }
+    init { read() }
+}
 
-    private class NativeStartFileEvent(pointer: Pointer) : Structure(pointer) {
-        @JvmField var playlistEntryId: Long = 0
+@Structure.FieldOrder("playlistEntryId")
+internal class NativeStartFileEvent(pointer: Pointer) : Structure(pointer) {
+    @JvmField var playlistEntryId: Long = 0
 
-        init { read() }
+    init { read() }
+}
 
-        override fun getFieldOrder(): List<String> = listOf("playlistEntryId")
-    }
+@Structure.FieldOrder("reason", "error", "playlistEntryId", "playlistInsertId", "playlistInsertNumEntries")
+internal class NativeEndFileEvent(pointer: Pointer) : Structure(pointer) {
+    @JvmField var reason: Int = 0
+    @JvmField var error: Int = 0
+    @JvmField var playlistEntryId: Long = 0
+    @JvmField var playlistInsertId: Long = 0
+    @JvmField var playlistInsertNumEntries: Int = 0
 
-    private class NativeEndFileEvent(pointer: Pointer) : Structure(pointer) {
-        @JvmField var reason: Int = 0
-        @JvmField var error: Int = 0
-        @JvmField var playlistEntryId: Long = 0
-        @JvmField var playlistInsertId: Long = 0
-        @JvmField var playlistInsertNumEntries: Int = 0
+    init { read() }
+}
 
-        init { read() }
+@Structure.FieldOrder("name", "format", "data")
+internal class NativePropertyEvent(pointer: Pointer) : Structure(pointer) {
+    @JvmField var name: Pointer? = null
+    @JvmField var format: Int = 0
+    @JvmField var data: Pointer? = null
 
-        override fun getFieldOrder(): List<String> = listOf(
-            "reason", "error", "playlistEntryId", "playlistInsertId", "playlistInsertNumEntries",
-        )
-    }
-
-    private class NativePropertyEvent(pointer: Pointer) : Structure(pointer) {
-        @JvmField var name: Pointer? = null
-        @JvmField var format: Int = 0
-        @JvmField var data: Pointer? = null
-
-        init { read() }
-
-        override fun getFieldOrder(): List<String> = listOf("name", "format", "data")
-    }
+    init { read() }
 }
 
 internal object MpvNativeEventId {

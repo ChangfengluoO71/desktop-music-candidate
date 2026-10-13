@@ -24,11 +24,11 @@ import java.nio.file.Path
 import java.util.ArrayDeque
 import java.util.Locale
 import java.util.concurrent.CompletableFuture
-import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -50,11 +50,12 @@ class LibMpvPlaybackEngine internal constructor(
     private val mutableClientApiVersion = AtomicInteger(0)
     val clientApiVersion: Int get() = mutableClientApiVersion.get()
 
-    private val commands = LinkedBlockingQueue<WorkerCommand>()
+    private val commands = NativeWorkerCommandQueue<WorkerCommand>()
     private val startup = CompletableDeferred<Unit>()
     private val workerDone = CompletableDeferred<Unit>()
     private val closeRequested = AtomicBoolean(false)
     private val workerStopping = AtomicBoolean(false)
+    private val workerFailure = AtomicReference<IllegalStateException?>(null)
     private val nextCommandUserdata = AtomicLong(100L)
     private val workerThread = Thread({ runNativeWorker(clientFactory) }, "dmc-libmpv-native").apply {
         isDaemon = true
@@ -175,7 +176,7 @@ class LibMpvPlaybackEngine internal constructor(
         if (closeRequested.compareAndSet(false, true)) {
             // Reject new calls now; let the native worker process the close marker after its
             // bounded event wait returns, then terminate the context on that same worker.
-            commands.offer(WorkerCommand(action = { closeOnWorker() }))
+            commands.offer(WorkerCommand(action = { closeOnWorker() })) { }
         }
         withContext(NonCancellable + Dispatchers.IO) {
             workerDone.await()
@@ -186,7 +187,9 @@ class LibMpvPlaybackEngine internal constructor(
     internal fun isWorkerAlive(): Boolean = workerThread.isAlive
 
     private suspend fun awaitStartup() {
-        ensureWorkerAccepting()
+        if (closeRequested.get()) throw IllegalStateException("The libmpv playback engine is closed or unavailable.")
+        // Await first so a completed startup exception remains visible to the caller. Checking
+        // workerDone before this await masks native initialization failures as a generic close.
         startup.await()
         ensureWorkerAccepting()
     }
@@ -195,7 +198,7 @@ class LibMpvPlaybackEngine internal constructor(
         awaitStartup()
         ensureWorkerAccepting()
         val result = CompletableFuture<T>()
-        if (!commands.offer(WorkerCommand(
+        commands.offer(WorkerCommand(
                 action = {
                     try {
                         result.complete(block())
@@ -204,15 +207,14 @@ class LibMpvPlaybackEngine internal constructor(
                     }
                 },
                 reject = result::completeExceptionally,
-            ))
-        ) {
-            throw IllegalStateException("The libmpv native worker is not accepting commands.")
-        }
-        if (workerDone.isCompleted) result.completeExceptionally(IllegalStateException("The libmpv native worker has stopped."))
+            )) { failure -> result.completeExceptionally(failure) }
         return result.awaitCancellable()
     }
 
     private fun ensureWorkerAccepting() {
+        workerFailure.get()?.let { failure ->
+            throw IllegalStateException("The libmpv native worker stopped: ${failure.message}", failure)
+        }
         if (closeRequested.get() || workerStopping.get() || workerDone.isCompleted) {
             throw IllegalStateException("The libmpv playback engine is closed or unavailable.")
         }
@@ -233,16 +235,20 @@ class LibMpvPlaybackEngine internal constructor(
                 if (!workerStopping.get()) processNativeEvent(native.waitEvent(EVENT_POLL_MILLIS))
             }
         } catch (failure: Throwable) {
-            if (!startup.isCompleted) startup.completeExceptionally(safeStartupFailure(failure))
-            failActiveLoads(safeStartupFailure(failure))
+            val safeFailure = safeStartupFailure(failure)
+            workerFailure.compareAndSet(null, safeFailure)
+            if (!startup.isCompleted) startup.completeExceptionally(safeFailure)
+            failActiveLoads(safeFailure)
             if (initialized) {
                 activeSessionId?.let { session ->
                     mutableEvents.tryEmit(PlaybackEvent.Failed(session, safeMessage(session, failure.message)))
                 }
             }
-            failQueuedCommands(failure)
+            commands.stop(safeFailure) { queued, cause -> queued.reject(cause) }
         } finally {
-            failQueuedCommands(IllegalStateException("The libmpv playback engine is closed."))
+            commands.stop(IllegalStateException("The libmpv playback engine is closed.")) { queued, cause ->
+                queued.reject(cause)
+            }
             failActiveLoads(CancellationException("The libmpv playback engine is closed."))
             client?.let { runCatching { it.close() } }
             client = null
@@ -388,6 +394,7 @@ class LibMpvPlaybackEngine internal constructor(
         when (event) {
             MpvNativeEvent.None -> Unit
             MpvNativeEvent.Shutdown -> {
+                workerFailure.compareAndSet(null, IllegalStateException("libmpv shut down unexpectedly."))
                 activeSessionId?.let { session ->
                     mutableEvents.tryEmit(PlaybackEvent.Failed(session, "libmpv shut down unexpectedly."))
                 }
@@ -540,13 +547,6 @@ class LibMpvPlaybackEngine internal constructor(
         loadsBySession.clear()
         loadsByCommand.clear()
         pendingStarts.clear()
-    }
-
-    private fun failQueuedCommands(failure: Throwable) {
-        while (true) {
-            val queued = commands.poll() ?: return
-            queued.reject(failure)
-        }
     }
 
     private fun closeOnWorker() {

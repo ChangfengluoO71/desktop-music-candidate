@@ -101,7 +101,12 @@
 
 **Files:**
 - Modify: `build.gradle.kts`
+- Modify: `src/main/kotlin/com/qing/hachimi/desktop/libmpv/LibMpvNativeApi.kt`
+- Modify: `src/main/kotlin/com/qing/hachimi/desktop/libmpv/LibMpvPlaybackEngine.kt`
+- Create: `src/main/kotlin/com/qing/hachimi/desktop/libmpv/NativeWorkerCommandQueue.kt`
 - Create: `src/test/kotlin/com/qing/hachimi/desktop/libmpv/LibMpvSharedOutputAcceptanceTest.kt`
+- Modify: `src/test/kotlin/com/qing/hachimi/desktop/libmpv/LibMpvPlaybackEngineTest.kt`
+- Create: `src/test/kotlin/com/qing/hachimi/desktop/libmpv/NativeWorkerCommandQueueTest.kt`
 - Create: `docs/testing/libmpv-r2-windows-acceptance.md`
 - Modify: `README.md` only if the current local-playback description says JavaFX is the production engine.
 
@@ -109,11 +114,11 @@
 - Add a separate opt-in `nativeMpvShared` test task requiring absolute `-PmpvLibrary` and `-PmpvArchive`; do not mix it into offline `test`.
 - Acceptance records API version, DLL/archive SHA-256, `current-ao`, playback-position movement, format coverage, and whether a human confirmed audible output.
 
-- [ ] Write the opt-in native test and acceptance checklist before running it; assert active output is `wasapi`, never `null`, and progress advances for MP3, FLAC, AAC/M4A, and WAV.
-- [ ] Run offline focused tests and the full suite under JDK 25.
-- [ ] Run `nativeMpvShared` against the pinned local test DLL and available fixtures; record exact result and any environment/audio-device block.
-- [ ] Launch the desktop app using the production engine and local fixtures when the environment permits; distinguish app launch, control interaction, active WASAPI, and audible confirmation.
-- [ ] Verify final diff and R2 requirements; commit as `test(player): verify WASAPI shared playback on Windows`.
+- [x] Write the opt-in native test and acceptance checklist before running it; assert active output is `wasapi`, never `null`, and progress advances for MP3, FLAC, AAC/M4A, and WAV.
+- [x] Run offline focused tests and the full suite under JDK 25.
+- [x] Run `nativeMpvShared` against the pinned local test DLL and available fixtures; record exact result and any environment/audio-device block.
+- [x] Launch the desktop app using the production engine and local fixtures when the environment permits; distinguish app launch, control interaction, active WASAPI, and audible confirmation.
+- [x] Verify final diff and R2 requirements; commit as `test(player): verify WASAPI shared playback on Windows`.
 
 ## Execution
 
