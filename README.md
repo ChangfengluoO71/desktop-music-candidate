@@ -2,8 +2,6 @@
 
 An independent Windows desktop music application candidate for local music browsing and optional online music discovery/downloads.
 
-This project is **not an official Hachimi desktop application**. It reuses a small number of MIT-licensed JVM API files from Hachimi and retains their original copyright and provenance. The candidate currently has a neutral placeholder name and has not been released.
-
 ## Current scope
 
 - Local music folder scanning, SQLite indexing, metadata inspection and duplicate analysis.
