@@ -17,6 +17,16 @@ class LibMpvEventDecodingTest {
     }
 
     @Test
+    fun `production event decoder preserves end reason policy`() {
+        assertEquals(MpvEndReason.EOF, MpvEventDecoder.endReason(0))
+        assertEquals(MpvEndReason.STOP, MpvEventDecoder.endReason(2))
+        assertEquals(MpvEndReason.QUIT, MpvEventDecoder.endReason(3))
+        assertEquals(MpvEndReason.ERROR, MpvEventDecoder.endReason(4))
+        assertEquals(MpvEndReason.REDIRECT, MpvEventDecoder.endReason(5))
+        assertEquals(MpvEndReason.UNKNOWN, MpvEventDecoder.endReason(99))
+    }
+
+    @Test
     fun `encodes command arguments as retained utf8 null terminated strings`() {
         val path = "C:\\测试 音频\\歌词.mp3"
         val argv = encodeNullTerminatedUtf8Arguments(listOf("loadfile", path, "replace"))

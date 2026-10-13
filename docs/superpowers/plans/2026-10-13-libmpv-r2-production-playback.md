@@ -50,7 +50,7 @@
 - [x] Add session IDs to the event/engine contract and route JavaFX callbacks with their captured ID.
 - [x] Add coordinator session allocation/invalidation and stale-event filtering, including restored/reloaded tracks. Move asynchronous load/play work outside the state mutex so queue changes and stop remain responsive during file loading; guard all engine controls with the session ID.
 - [x] Run coordinator and JavaFX playback tests; verify existing queue, pause, seek, and end behavior remains green.
-- [ ] Commit as `fix(player): scope playback events to track sessions`.
+- [x] Commit as `fix(player): scope playback events to track sessions`.
 
 ### Task 2: Production libmpv engine and native event loop
 
@@ -66,13 +66,13 @@
 - `load(track, sessionId)` completes only after the matching file-loaded event, with timeout/cancellation surfaced as an error.
 - End-file handling emits `Ended` only for EOF mapped to the matching playlist entry; STOP/QUIT/ERROR/REDIRECT/unknown never advance the queue.
 
-- [ ] Write fake-native tests for strict WASAPI/no-null options, load waiting for FILE_LOADED (not command submission), event/session mapping, EOF vs STOP/ERROR, stop/supersede during loading, repeated seek, cancellation, and close waiting for the event worker.
-- [ ] Run the focused test class and verify it fails because the production engine/API does not exist.
-- [ ] Implement the narrow JNA mapping, explicit UTF-8 native arguments, a serialized worker/event loop, command reply IDs, property observation IDs, and playlist-entry-to-session mapping.
-- [ ] Set `config=no`, `load-scripts=no`, `ao=wasapi`, and `audio-fallback-to-null=no`; verify an active `current-ao` and fail explicitly if WASAPI does not initialize.
-- [ ] Add bounded load/output timeouts and cancellation/close ordering; do not log full local paths or native command arguments.
-- [ ] Run focused fake-native tests and the existing native POC tests; the POC remains test-only and continues using `ao=null` only for decode verification.
-- [ ] Commit as `feat(player): add libmpv shared-output engine`.
+- [x] Write fake-native tests for strict WASAPI/no-null options, load waiting for FILE_LOADED (not command submission), event/session mapping, EOF vs STOP/ERROR, stop/supersede during loading, repeated seek, cancellation, and close waiting for the event worker.
+- [x] Run the focused test class and verify it fails because the production engine/API does not exist.
+- [x] Implement the narrow JNA mapping, explicit UTF-8 native arguments, a serialized worker/event loop, command reply IDs, property observation IDs, and playlist-entry-to-session mapping.
+- [x] Set `config=no`, `load-scripts=no`, `ao=wasapi`, `audio-exclusive=no`, and `audio-fallback-to-null=no`; wait for active `current-ao=wasapi` before returning from play and fail explicitly if shared WASAPI does not initialize.
+- [x] Add bounded load/output timeouts and cancellation/close ordering; do not log full local paths or native command arguments.
+- [x] Run focused fake-native tests and the existing native POC tests; the POC remains test-only and continues using `ao=null` only for decode verification.
+- [x] Commit as `feat(player): add libmpv shared-output engine`.
 
 ### Task 3: Production wiring and settings compatibility
 
