@@ -123,3 +123,5 @@
 ## Execution
 
 Execute inline in the current authorized `main` workspace. Run every task test before its commit. Do not remove JavaFX, package libmpv, create an installer, or begin R3.
+
+**Follow-up acceptance:** on 2026-10-14 the user confirmed audible playback in the running app. The specific format, output endpoint, and player-control actions were not captured; see `docs/testing/libmpv-r2-windows-acceptance.md`.

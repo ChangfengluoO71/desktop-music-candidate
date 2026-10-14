@@ -30,7 +30,7 @@ The test emits `R2_NATIVE_ARTIFACT` with client API version and SHA-256 values, 
 | FLAC: `current-ao` / position advanced | PASS - `wasapi`, 40 ms |
 | AAC/M4A: `current-ao` / position advanced | PASS - `wasapi`, 23 ms |
 | WAV: `current-ao` / position advanced | PASS - `wasapi`, 40 ms |
-| Human confirmed audible output | NOT_CONFIRMED |
+| Human confirmed audible output | PASS - user confirmed app playback on 2026-10-14; format and endpoint NOT_CAPTURED |
 | Desktop app launch with production DLL | PASS - window opened; process had explicit DLL property and `libmpv-2.dll` loaded |
 | Desktop player controls / queue / lyrics | NOT_TESTED |
 
@@ -40,7 +40,7 @@ The test emits `R2_NATIVE_ARTIFACT` with client API version and SHA-256 values, 
 
 **Concurrency review fix:** shutdown and queue draining now close the command mailbox atomically with command submission. This prevents a command from being inserted after the final drain and waiting forever. The regression test covers concurrent offer/stop, and the full suite includes these cases.
 
-An active `current-ao=wasapi` and advancing playback position prove the engine is using the Windows shared output path. They do not establish that a person heard the sound. Record a human listening check separately before declaring audible acceptance complete.
+An active `current-ao=wasapi` and advancing playback position establish the Windows shared output path. The user separately confirmed audible playback in the app on 2026-10-14. The specific format, endpoint, and player controls used for that listening check were not captured.
 
 ## Manual app check
 
