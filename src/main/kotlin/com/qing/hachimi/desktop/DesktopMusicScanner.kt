@@ -4,6 +4,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import org.jaudiotagger.audio.AudioFileIO
@@ -18,6 +19,7 @@ import java.nio.file.Path
 import java.nio.file.SimpleFileVisitor
 import java.nio.file.attribute.BasicFileAttributes
 import java.util.Locale
+import java.util.concurrent.TimeUnit
 import java.util.UUID
 import kotlin.coroutines.CoroutineContext
 
@@ -71,7 +73,83 @@ class DesktopMusicScanner(
     private val store: LocalMusicStore,
     private val metadataReader: LocalAudioMetadataReader = JaudiotaggerLocalAudioMetadataReader(),
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val stabilitySampleMillis: Long = 500,
+    private val stabilityTimeoutMillis: Long = 10_000,
+    private val stabilityDelay: suspend (Long) -> Unit = { delay(it) },
+    private val fileAttributesReader: (Path) -> BasicFileAttributes = { path ->
+        Files.readAttributes(path, BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)
+    },
 ) {
+    suspend fun applyChanges(changes: List<LocalMusicChange>): LocalMusicChangeResult = withContext(ioDispatcher) {
+        val registeredRoots = store.loadRoots().associateBy { rootIdentity(Path.of(it.path)) }
+        val recoveryRoots = changes.filter { it.kind == LocalMusicChangeKind.RESCAN_ROOT }
+            .mapNotNull { registeredRoots[rootIdentity(it.root)]?.let { root -> rootIdentity(Path.of(root.path)) } }.toSet()
+        val retries = mutableListOf<LocalMusicChange>()
+        var scanned = 0
+        var reused = 0
+        var failed = 0
+        var unsupported = 0
+
+        recoveryRoots.forEach { rootKey ->
+            val root = Path.of(registeredRoots.getValue(rootKey).path)
+            val result = scan(listOf(root))
+            scanned += result.scannedFiles
+            reused += result.reusedMetadata
+            failed += result.failedFiles
+            unsupported += result.unsupportedFiles
+        }
+
+        val scanContext = currentCoroutineContext()
+        changes.filter { change ->
+            change.kind != LocalMusicChangeKind.RESCAN_ROOT &&
+                rootIdentity(change.root) in registeredRoots && rootIdentity(change.root) !in recoveryRoots
+        }.forEach { change ->
+            scanContext.ensureActive()
+            val root = registeredRoots[rootIdentity(change.root)]?.path ?: return@forEach
+            if (change.kind == LocalMusicChangeKind.DELETED) {
+                store.removePathMembership(root, change.path)
+                return@forEach
+            }
+            val extension = change.path.fileName?.toString()?.substringAfterLast('.', "").orEmpty().lowercase(Locale.ROOT)
+            if (extension !in AUDIO_EXTENSIONS) return@forEach
+
+            val stableAttributes = when (val outcome = awaitStableAttributes(change.path)) {
+                is FileAttributeOutcome.Stable -> outcome.attributes
+                FileAttributeOutcome.Missing, FileAttributeOutcome.NotRegular -> {
+                    store.removePathMembership(root, change.path)
+                    return@forEach
+                }
+                FileAttributeOutcome.Unstable, FileAttributeOutcome.Retry -> {
+                    retries += change
+                    return@forEach
+                }
+            }
+            val rootPath = Path.of(root).toRealPath()
+            val canonical = runCatching { change.path.toRealPath(LinkOption.NOFOLLOW_LINKS) }
+                .getOrElse { change.path.toAbsolutePath().normalize() }
+            val rootKey = normalizedLibraryPath(rootPath.toString())
+            val fileKey = normalizedLibraryPath(canonical.toString())
+            if (fileKey == rootKey || !fileKey.startsWith("$rootKey/")) return@forEach
+
+            val key = pathKey(canonical)
+            val (track, reusedTrack) = scanOne(canonical, stableAttributes, scanContext, forceRead = true)
+            store.saveTrack(root, "watch-${UUID.randomUUID()}", track)
+            if (reusedTrack) reused++ else scanned++
+            if (track.error != null) failed++
+            if (track.metadataStatus == LocalMetadataStatus.UNSUPPORTED) unsupported++
+            store.clearContentHash(key)
+        }
+
+        LocalMusicChangeResult(
+            tracks = store.loadTracks(),
+            scannedFiles = scanned,
+            reusedMetadata = reused,
+            failedFiles = failed,
+            unsupportedFiles = unsupported,
+            retryChanges = retries,
+        )
+    }
+
     suspend fun scan(
         roots: List<Path>,
         onProgress: (LocalScanProgress) -> Unit = {},
@@ -178,6 +256,7 @@ class DesktopMusicScanner(
         path: Path,
         attributes: BasicFileAttributes,
         context: CoroutineContext,
+        forceRead: Boolean = false,
     ): Pair<LocalTrack, Boolean> {
         val canonical = runCatching { path.toRealPath(LinkOption.NOFOLLOW_LINKS) }
             .getOrElse { path.toAbsolutePath().normalize() }
@@ -185,7 +264,7 @@ class DesktopMusicScanner(
         val size = attributes.size().coerceAtLeast(0L)
         val modified = attributes.lastModifiedTime().toMillis()
         val existing = store.findTrack(key)
-        if (existing != null && existing.fileSize == size && existing.lastModifiedMillis == modified) {
+        if (!forceRead && existing != null && existing.fileSize == size && existing.lastModifiedMillis == modified) {
             return existing.copy(filePath = canonical.toString(), scannedAtMillis = System.currentTimeMillis()) to true
         }
 
@@ -242,6 +321,36 @@ class DesktopMusicScanner(
             errorTrack(path, key, size, modified, format, fallback, LocalMetadataStatus.DAMAGED,
                 LocalScanErrorKind.DAMAGED_AUDIO, "无法解析音频头或标签；原文件未修改。") to false
         }
+    }
+
+    private suspend fun awaitStableAttributes(path: Path): FileAttributeOutcome {
+        val timeoutNanos = TimeUnit.MILLISECONDS.toNanos(stabilityTimeoutMillis.coerceAtLeast(1))
+        val deadline = System.nanoTime() + timeoutNanos
+        var previous: FileFingerprint? = null
+        while (System.nanoTime() < deadline) {
+            currentCoroutineContext().ensureActive()
+            val current = try {
+                fileAttributesReader(path)
+            } catch (_: NoSuchFileException) {
+                return FileAttributeOutcome.Missing
+            } catch (_: Exception) {
+                return FileAttributeOutcome.Retry
+            }
+            if (!current.isRegularFile || current.isSymbolicLink) return FileAttributeOutcome.NotRegular
+            val fingerprint = FileFingerprint(current.size(), current.lastModifiedTime().toMillis())
+            if (fingerprint == previous) return FileAttributeOutcome.Stable(current)
+            previous = fingerprint
+            stabilityDelay(stabilitySampleMillis.coerceAtLeast(1))
+        }
+        return FileAttributeOutcome.Unstable
+    }
+
+    private sealed interface FileAttributeOutcome {
+        data class Stable(val attributes: BasicFileAttributes) : FileAttributeOutcome
+        data object Missing : FileAttributeOutcome
+        data object NotRegular : FileAttributeOutcome
+        data object Unstable : FileAttributeOutcome
+        data object Retry : FileAttributeOutcome
     }
 
     private fun errorTrack(
@@ -336,6 +445,7 @@ class DesktopMusicScanner(
     }
 
     private data class RootPlan(val root: LocalMusicRoot, val path: Path)
+    private data class FileFingerprint(val size: Long, val modifiedMillis: Long)
     private data class WalkResult(val audioFiles: Int, val complete: Boolean)
     private data class FilenameMetadata(
         val title: String,
@@ -357,3 +467,12 @@ class DesktopMusicScanner(
             .digest(bytes).joinToString("") { "%02x".format(it) }
     }
 }
+
+data class LocalMusicChangeResult(
+    val tracks: List<LocalTrack>,
+    val scannedFiles: Int,
+    val reusedMetadata: Int,
+    val failedFiles: Int,
+    val unsupportedFiles: Int,
+    val retryChanges: List<LocalMusicChange>,
+)

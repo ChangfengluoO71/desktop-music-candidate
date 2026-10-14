@@ -1,38 +1,46 @@
-# DMC project status
+# DMC 项目状态
 
-Snapshot: 2026-10-13. Player P1 is implemented in part. This report separates code and automated test results from real-device audio acceptance.
+快照：2026-10-14。R3 集成播放器与本地曲库代码已完成；R3 自动化测试和 Windows EXE 构建通过。实际窗口交互及固定 libmpv 运行库验收仍阻塞，不能据此宣布 P1 全部验收通过。
 
-## Repository and build
+## 仓库与构建
 
-- Repository: [ChangfengluoO71/desktop-music-candidate](https://github.com/ChangfengluoO71/desktop-music-candidate), public.
-- Current branch: `main`. Earlier player foundation is published in `612dba3` and `c2cfdba`; this snapshot also records the current queue and keyboard-interaction work.
-- Existing preview: [v0.0.1](https://github.com/ChangfengluoO71/desktop-music-candidate/releases/tag/v0.0.1). This P1 work did not create a release.
-- Installer identity, user data directory, remote, Android source, and release tags are unchanged.
-- Build runtime: JDK 25. Runtime dependency inventories include OpenJFX 25.0.2 Windows artifacts; see `docs/dependency-licenses.csv` and `docs/dependency-tree-runtimeClasspath.txt`.
+- 仓库：ChangfengluoO71/desktop-music-candidate，公开仓库；当前分支 main。
+- 本轮基线：`c76e52ca4e5b4f9905f30326e727e7942e04dbe3`。
+- 本轮未 Push、Merge、Release；未修改 Android 端。
+- 构建使用 JDK 25，字节码目标保持项目配置。
+- 现有预览发布、安装身份、用户数据目录和在线模块不在本轮修改范围内。
 
-## Player P1
+## R3 实施状态
 
-- Implemented: local LRC parsing and sidecar loading; durable playback queue and coordinator; OpenJFX Media adapter; application lifecycle and shutdown; queue restoration without auto-play; play/queue actions in the local library; mini-player; Now Playing window with artwork, synchronized lyric highlight, original/translation/romanization switching and queue controls; cover wall/search; opt-in directory monitoring; long-press queue drag reorder with button alternatives; player-window shortcuts (Space, Left/Right ±5 seconds, Ctrl+Left/Right track switch) that leave text-field input intact.
-- Playback event collection now subscribes before coordinator construction returns, preventing a startup timing window from dropping an early track-ended event.
-- Automated media integration loads synthetic MP3, AAC-LC/M4A and PCM WAV fixtures and reads duration. This verifies local media-stack loading, not audible output.
-- FLAC is unsupported by OpenJFX Media and is excluded from this backend's playable formats. FLAC files can still be indexed; playback reports unsupported format.
-- `createDistributable` succeeded under JDK 25. The image contains OpenJFX 25.0.2 Windows base/graphics/media JARs; `javafx-media` contains `jfxmedia.dll`; the bundled JDK image contains `runtime/legal` notices. The Inno script copies product/dependency notices.
-- Still unverified: audible output and playback controls on a real Windows audio device; launching the installed app from Start Menu; upgrade behavior; high-DPI/resize usability and real-window drag feel; and whether to add a FLAC-capable backend.
-- See [PLAYER-P1.md](PLAYER-P1.md) for the detailed scope, architecture, supported-format boundaries, and remaining acceptance gates.
+- 播放器入口进入 DMC 主窗口“正在播放”页面，迷你播放器跨页面保持显示；不再通过独立 DialogWindow 展示完整播放器。
+- Now Playing 随窗口尺寸切换并排或堆叠布局；歌词支持时间点跳转，手动滚动暂停跟随和显式恢复。
+- libmpv 继续作为唯一生产播放器，固定 WASAPI shared，设置 audio-display=no。无回退到 JavaFX 的逻辑。
+- 本地音乐库新增专辑、歌手、歌曲和文件夹浏览，网格自适应、歌曲列表虚拟化、排序和文件夹筛选。
+- 专辑/曲目支持播放、播放下一首和加入队列；封面仓库共享提取、限制 64 MiB 解码缓存、并发去重和变更失效。
+- 目录监听可按变更路径增量更新，等待复制文件稳定，并在监听丢失/溢出后做根目录恢复扫描。
 
-## Validation record
+## 验证结果
 
-- Local JDK 25 command: `./gradlew.bat --no-daemon test --rerun-tasks` — 242 tests in 42 reports, 0 failures, 0 errors, 0 skipped on the final full run. An earlier run had one intermittent Compose/AWT preview-dialog thread race; that test passed in isolation and the subsequent full rerun passed. No test was removed or relaxed.
-- Local JDK 25 command: `./gradlew.bat --no-daemon packageExe` — succeeded and produced the packaging experiment `DesktopMusicCandidate-0.1.2.exe`.
-- Local JDK 25 command: `./gradlew.bat --no-daemon createDistributable` — succeeded; inspected app image includes JavaFX Windows runtime JARs and its native media DLL.
-- The current P1 work adds automated coverage for queue reordering, keyboard shortcut mappings, text-input focus protection, and event-subscriber startup timing; it does not constitute real audio-device acceptance.
-- GitHub Actions [run 38350307463](https://github.com/ChangfengluoO71/desktop-music-candidate/actions/runs/38350307463) passed the Windows full-test job and the Inno Setup installer job on JDK 25. The publish-preview job was skipped (`publish_preview=false`); no release was created.
-- The installer smoke compiled the setup, installed to a custom directory, checked bundled JVM/OpenJFX media files and notices, checked Start Menu and desktop shortcuts, uninstalled, and confirmed test user data survived. It did not launch the installed application or test audible playback.
-- GitHub Actions currently does not upload JUnit XML, so the hosted run's exact test/skip count is not captured. The 242-test count above is the local run. The JavaFX hardware test uses an output-endpoint preflight; a green CI job alone is not audible-playback acceptance.
-- No Inno installer was installed or launched on this user's local machine during this task. The CI installer artifact is short-lived and is not a release.
+| 类型 | 结果 | 证据 |
+|---|---|---|
+| JDK 25 全量自动化 | PASS | `./gradlew.bat --no-daemon test --rerun-tasks`：298 tests，49 reports，0 failures/errors/skips |
+| Windows EXE 构建 | PASS | `./gradlew.bat --no-daemon packageExe`：生成 `build/compose/binaries/main/exe/DesktopMusicCandidate-0.1.2.exe` |
+| 源码启动 | PASS | `./gradlew.bat --no-daemon run` 成功启动应用进程 |
+| 本次原生 libmpv 验收 | BLOCKED | 检索未找到固定版 `libmpv-2.dll` 与归档，未运行 `nativeMpvShared` |
+| 本地 GUI 交互 | GUI_BLOCKED | 当前源码窗口已启动；Computer Use 的必需文档 API 在此会话不可用，因此未执行窗口操作或高 DPI 验收 |
+| 安装/升级/卸载 | NOT RUN | 本轮只构建 EXE，未运行安装器 |
 
-## Product identity and next work
+R2 历史记录单独保留于 `docs/testing/libmpv-r2-windows-acceptance.md`；它不能替代 R3 对 audio-display=no 和嵌入封面窗口行为的验收。
 
-- Product documentation uses **DMC**. Runtime executable, window title, installer identity, data directory, and Credential Manager target still use `Desktop Music Candidate`; changing these identities is deferred until upgrade/data-preservation tests are ready.
-- The player remains independent of NetEase Song IDs, sessions, cookies, and remote URLs. Its queue stores local track paths only.
-- Next: manually launch the installed app from Start Menu and verify audible playback, pause/seek/track-end behavior, queue drag feel and supported formats on a real Windows audio device; validate upgrade/data preservation and high-DPI layout; decide whether FLAC support is a P1 requirement.
+## 运行与依赖边界
+
+- 播放器依赖用户提供受支持的 libmpv 运行库；当前 EXE 构建未包含该运行库。
+- JavaFX 旧实现和依赖尚在仓库中作为迁移残留，但生产入口使用 libmpv；删除残留放到独立审核。
+- 本地播放器不需要登录；在线网易云搜索、登录和下载与本地曲库保持分离。
+
+## 下一步
+
+1. 恢复固定版 libmpv DLL/归档并完成 nativeMpvShared，记录哈希、WASAPI 和无额外窗口结果。
+2. 完成真实桌面操作和高 DPI 清单，分别核对主窗口播放、队列、歌词、搜索焦点及四种曲库浏览。
+3. 在运行库许可、来源和安装包方案确认后，做真实安装版验收。
+4. 根据使用反馈规划 P2：收藏/历史/播放列表、媒体键、播放设备和播放行为设置。

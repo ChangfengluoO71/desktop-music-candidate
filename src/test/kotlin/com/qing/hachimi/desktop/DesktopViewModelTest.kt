@@ -18,6 +18,23 @@ import kotlin.test.assertTrue
 
 class DesktopViewModelTest {
     @Test
+    fun `now playing is a navigable main-window destination`() = runBlocking {
+        val root = Files.createTempDirectory("dmc-now-playing-navigation")
+        val gateway = DesktopGatewayStub()
+        val session = SessionManager(MemoryCredentialStore(), SessionValidator { SessionValidation.VALID })
+        val harness = createHarness(root, gateway, session)
+
+        try {
+            harness.viewModel.navigate(DesktopPage.NOW_PLAYING)
+
+            assertEquals(DesktopPage.NOW_PLAYING, harness.viewModel.ui.value.page)
+        } finally {
+            harness.transfer.release.complete(Unit)
+            harness.viewModel.shutdown()
+        }
+    }
+
+    @Test
     fun `signed out discovery requests show login guidance`() = runBlocking {
         val root = Files.createTempDirectory("hachimi-discovery-signed-out")
         val gateway = DesktopGatewayStub()

@@ -1,6 +1,6 @@
 # R3 Integrated Player UX Design
 
-**Status: Draft for user review**
+**Status: User-approved; R3 implementation complete, with native and GUI acceptance still blocked**
 **Scope:** DMC Windows desktop player and local-library experience. This document is a product and architecture design, not an implementation plan.
 
 ## 1. Goal
@@ -9,7 +9,7 @@ Make local playback feel like a coherent part of DMC. Playback controls, the lib
 
 R3 keeps Kotlin, Compose Desktop, Miuix, and the existing libmpv audio backend. It does not replace the UI framework or launch the mpv command-line application.
 
-## 2. Current-State Findings
+## 2. Baseline Findings Before R3 Implementation
 
 - Production playback calls libmpv through JNA from `LibMpvPlaybackEngine`; source search found no `mpv.exe` process launch.
 - `PlayerNowPlayingDialog` uses Compose `DialogWindow`, so the current full-player view is a second DMC top-level window. This is separate from the possible libmpv cover-art output window described below.
@@ -18,8 +18,18 @@ R3 keeps Kotlin, Compose Desktop, Miuix, and the existing libmpv audio backend. 
 - `LocalArtworkThumbnail` and `PlayerArtwork` each construct a `LocalArtworkResolver`; embedded artwork is extracted with jaudiotagger and decoded for display without a shared bounded thumbnail cache.
 - Library roots already support opt-in recursive monitoring. Bursts are debounced, but a change currently triggers a full scan across all configured roots rather than a path-level incremental update; retain this feature and improve how changes update the index.
 - The lyric screen follows the current line and switches among local original, translation, and romanization variants. Lyric rows do not seek when clicked, and manual scrolling has no explicit pause/resume-follow behavior.
-- The R2 Windows acceptance record confirms libmpv/WASAPI and audible playback, but the player controls, queue, lyrics, and installed-app UX remain untested.
-- Legacy JavaFX playback source and tests remain in the tree even though the production entry point selects libmpv and the unavailable-backend path does not fall back to JavaFX. Remove this dead reference only after libmpv acceptance is complete.
+- The R2 native acceptance record confirms libmpv selected WASAPI and playback position advanced for generated audio fixtures; it does not prove a person heard sound. The player controls, queue, lyrics, and installed-app UX remained untested at the R3 baseline.
+- Legacy JavaFX playback source, tests, and runtime dependencies remain in the tree as migration residue. The production entry point selects libmpv and the unavailable-backend path does not fall back to JavaFX. Removal remains separate from R3 and requires dependency/license review.
+
+## 2.1 R3 Implementation Record
+
+- Implemented the in-window Now Playing route, responsive player layout, shared bounded artwork repository, four local-library browsing modes, queue actions, lyric seeking/follow controls, and path-level watched-folder updates with root-scan recovery.
+- Review follow-up serializes library database mutations, rejects stale watcher events for removed/disabled roots, selects compilation album tracks by exact indexed paths, supports double-click playback, and keeps unrelated artwork-cache entries valid after scoped invalidation.
+- Added regression coverage for scan/watch races, compilation album selection, invalid WatchKeys, overflow recovery, disconnected-root reconnection, and cross-folder artwork cache retention.
+- JDK 25 full test run on 2026-10-14: 298 tests, 49 reports, zero failures, errors, or skipped tests.
+- `packageExe` succeeded and generated DesktopMusicCandidate 0.1.2. The build does not bundle libmpv.
+- The current source application was launched, but interactive GUI checks at standard/high DPI were not performed: the Computer Use runtime did not expose the required documentation API in this session, so no window actions were attempted.
+- No pinned libmpv DLL and archive were found in the searched local project, Downloads, or app-local directories, so the R3 native embedded-art/no-extra-window acceptance was not run.
 
 ## 3. Research Findings Applied to DMC
 
@@ -115,7 +125,7 @@ Each slice must leave the previous slice usable and include a focused acceptance
 - libmpv binary provenance, dependency and license audit.
 - Bundling libmpv only if the exact build and all linked libraries pass distribution review; otherwise retain a documented external-runtime path.
 - Inno Setup runtime packaging and installed-app validation.
-- Removing JavaFX reference implementation, dependency, and tests after R3 acceptance.
+- Reviewing and removing JavaFX migration residue, its dependency, and tests after the player acceptance and dependency/license audit.
 
 ### Later candidates, not R3 commitments
 

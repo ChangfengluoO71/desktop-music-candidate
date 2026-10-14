@@ -1,43 +1,43 @@
-# DMC product roadmap
+# DMC 产品路线图
 
-Status snapshot: 2026-10-13. See [current project status](PROJECT-STATUS.md) for repository and preview-build facts. Player P1 is in progress: local playback/UI, queue reorder, and focus-safe shortcuts are implemented and automated; real audio-device and installed-Inno acceptance remain open. Detailed phases and gates are in [PLAYER-P1.md](PLAYER-P1.md).
+状态快照：2026-10-14。R3 播放器和曲库代码完成，自动化与 EXE 构建通过；Windows GUI、高 DPI 和固定 libmpv 原生运行库验收仍未完成。详见 [项目状态](PROJECT-STATUS.md) 与 [播放器 P1](PLAYER-P1.md)。
 
-## P0 — Independent product foundation
+## P0 — 独立产品基础
 
-- Independent Gradle build, local wrapper, Windows packaging and public GitHub repository.
-- Local music scanning/indexing and optional NetEase discovery/download kept in separate storage and service areas.
-- Source attribution, dependency snapshot, license inventory and a DMC identity decision.
-- The installed preview still uses the earlier `Desktop Music Candidate` runtime identity; see [PRODUCT-IDENTITY.md](PRODUCT-IDENTITY.md).
+- 独立 Gradle 构建、Windows 打包、公开 GitHub 仓库和来源/许可证清单。
+- 本地曲库、播放器与网易云在线发现/下载保持模块隔离。
+- 运行时及安装包身份仍为早期 Desktop Music Candidate；品牌迁移须保护安装升级、用户数据和凭据兼容性。
 
-## P1 — Offline local player and music manager
+## P1 — 本地播放器与音乐管理
 
-- Implemented: OpenJFX Media behind a provider-free Kotlin interface; local queue and transport UI; mini-player; Now Playing lyric/queue view; cover wall; opt-in folder watching; synthetic MP3, AAC-LC/M4A and PCM WAV load tests; queue drag/button reorder; focus-safe player shortcuts.
-- Remaining: audible output and transport testing in a real Windows window; inspect the installed Inno package via CI; verify packaged license notices; determine whether to adopt a FLAC-capable backend; resize/high-DPI and source-file immutability acceptance.
-- The current backend does not support FLAC. Scanner extension recognition is not evidence of decoder support.
-- Detailed implementation status and gates: [Player P1 plan](PLAYER-P1.md).
+- 已实现：libmpv/WASAPI 播放路径、队列与迷你播放器、主窗口 Now Playing、原文/翻译/罗马音歌词、曲库四种视图、共享封面缓存、队列插队和歌词跳转、可选监听目录增量更新。
+- 自动化：298 tests，零失败/错误/跳过。
+- EXE：JDK 25 构建成功；不代表安装或 libmpv 运行库分发通过。
+- 仍待验收：实际主窗口交互、100%/高 DPI 布局、固定 libmpv DLL 下的 WASAPI/内嵌封面窗口行为、安装包和运行库方案。
+- 旧 JavaFX 实现/依赖仍留作迁移残留，不是生产回退后端；完成验收及许可审查后再决定清理。
 
-## P2 — Library depth and personalization
+## P2 — 曲库深度与个性化
 
-- Faster indexing and search for large libraries; resilient handling of network/removable drives and duplicate roots.
-- Saved views, favorites, playlists and richer album/artist organization.
-- Advanced output-device selection, global media keys and configurable playback behavior after the P1 backend proves stable.
-- Cache invalidation and cover-art quality/performance improvements based on real library measurements.
+- 收藏、最近播放、播放列表和更丰富的专辑/歌手组织。
+- 网络盘、移动盘、重复目录和索引速度优化。
+- 媒体键、系统媒体控制、播放设备选择和播放行为设置。
+- 以真实曲库性能数据继续改善封面质量、缓存和搜索。
 
-## P3 — Lyrics and library metadata
+## P3 — 歌词与元数据
 
-- Improve timed translation/romanization alignment, word-level YRC rendering and karaoke-style presentation.
-- Add opt-in metadata edits with backups, diff preview and undo; local user tags remain authoritative.
-- Keep any online lyric or metadata source optional, attributable and clearly separated from local playback.
+- 改善歌词翻译/罗马音对齐和逐字 YRC 呈现。
+- 可选在线歌词匹配需用户确认，并缓存来源；不自动生成翻译或罗马音。
+- 元数据写入另设流程，需备份、差异预览和撤销；默认曲库保持只读。
 
-## P4 — Online provider boundaries
+## P4 — 在线服务边界
 
-- Isolate NetEase behind a provider interface; login remains optional and separate from local playback/library services.
-- Introduce provider references distinct from local track identity; migrate existing task JSON without losing history.
-- Add additional providers only through normal authorization and source-specific policy checks.
+- 网易云服务继续通过独立 Provider 边界访问；账号登录仍为可选能力。
+- Provider 引用与本地曲目身份分离；保持任务记录迁移兼容。
+- 新服务接入需按正常授权和来源策略实现。
 
-## P5 — Stable release engineering
+## P5 — 稳定发布
 
-- Complete the DMC runtime-brand migration with stable installer identity and tested data/credential continuity.
-- Test clean install, in-place upgrade and uninstall on supported Windows versions.
-- Keep CI tests on every pull request; use a separate explicitly authorized release workflow for installers.
-- Complete LGPL source/relinking and bundled-runtime notice review for each release.
+- 完成运行时品牌迁移、安装身份和数据/凭据连续性验证。
+- 在受支持 Windows 版本验证干净安装、原位升级和卸载。
+- 每次改动在 CI 保持测试；正式安装包仅通过显式授权的发布流程生成。
+- 按实际 libmpv 发行构建核对许可证、依赖及源代码/再链接义务。

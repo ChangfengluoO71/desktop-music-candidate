@@ -39,7 +39,6 @@ class PlayerViewModelTest {
             viewModel.selectLyricVariant(LyricVariant.TRANSLATION)
             assertEquals(LyricVariant.TRANSLATION, viewModel.state.value.lyricVariant)
             assertEquals("translated", viewModel.state.value.activeLyrics.single().text)
-            assertTrue(viewModel.state.value.isNowPlayingOpen.not())
         } finally {
             viewModel.close()
             local.shutdown()

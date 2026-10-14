@@ -2,23 +2,94 @@ package com.qing.hachimi.desktop
 
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeUp
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.moveBy
 import androidx.compose.ui.test.up
 import androidx.compose.ui.test.v2.runComposeUiTest
 import androidx.compose.ui.geometry.Offset
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
+import java.nio.file.Path
 import top.yukonga.miuix.kmp.theme.ColorSchemeMode
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.ThemeController
 import kotlin.test.assertEquals
 
 class PlayerScreensTest {
+    @TempDir
+    lateinit var tempDir: Path
+
+    @OptIn(ExperimentalTestApi::class)
+    @Test
+    fun `lyric rows seek by timestamp and manual scrolling pauses follow`() = runComposeUiTest {
+        val lines = (0 until 24).map { index -> TimedLyricLine(index * 1_000L, "line $index") }
+        var requestedSeek: Long? = null
+        setContent {
+            MiuixTheme(controller = ThemeController(ColorSchemeMode.System)) {
+                PlayerLyricsContent(
+                    lines = lines,
+                    activeIndex = 0,
+                    trackKey = "test-track",
+                    variant = LyricVariant.ORIGINAL,
+                    onSeek = { requestedSeek = it },
+                )
+            }
+        }
+
+        onNodeWithTag("now-playing-lyrics").performScrollToNode(hasTestTag("lyric-line-5"))
+        onNodeWithTag("lyric-line-5").performClick()
+        assertEquals(5_000L, requestedSeek)
+        onNodeWithTag("now-playing-lyrics").performTouchInput { swipeUp() }
+        onNodeWithTag("lyric-follow-resume").assertIsDisplayed().performClick()
+        onAllNodesWithTag("lyric-follow-resume").assertCountEquals(0)
+    }
+
+    @OptIn(ExperimentalTestApi::class)
+    @Test
+    fun `now playing content stays in app and exposes lyrics and queue panels`() = runComposeUiTest {
+        val localMusic = LocalMusicViewModel(
+            LocalMusicStore(tempDir.resolve("library.db")),
+            mainDispatcher = Dispatchers.Default,
+        )
+        val viewModel = PlayerViewModel(
+            PlaybackCoordinator(UnavailablePlaybackEngine("synthetic missing player"), Dispatchers.Default),
+            localMusic,
+            PlaybackQueueStore(tempDir.resolve("playback-queue.json")),
+            ioDispatcher = Dispatchers.IO,
+            mainDispatcher = Dispatchers.Default,
+        )
+        try {
+            setContent {
+                MiuixTheme(controller = ThemeController(ColorSchemeMode.System)) {
+                    NowPlayingScreen(viewModel)
+                }
+            }
+
+            onNodeWithTag("now-playing-screen").assertIsDisplayed()
+            onNodeWithTag("now-playing-lyrics-panel").assertIsDisplayed()
+            onNodeWithTag("now-playing-toggle-queue").performClick()
+            onNodeWithTag("player-queue-empty").assertIsDisplayed()
+        } finally {
+            runBlocking {
+                viewModel.close()
+                localMusic.shutdown()
+            }
+        }
+    }
+
     @OptIn(ExperimentalTestApi::class)
     @Test
     fun `mini player exposes track controls and forwards user actions`() = runComposeUiTest {

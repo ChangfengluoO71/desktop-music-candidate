@@ -8,21 +8,31 @@ import java.nio.file.StandardWatchEventKinds.ENTRY_CREATE
 import java.nio.file.StandardWatchEventKinds.ENTRY_DELETE
 import java.nio.file.StandardWatchEventKinds.ENTRY_MODIFY
 import java.nio.file.StandardWatchEventKinds.OVERFLOW
+import java.nio.file.WatchEvent
 import java.nio.file.WatchKey
 import java.nio.file.WatchService
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 
-/** Watches only explicitly enabled roots and coalesces filesystem bursts before rescanning. */
+enum class LocalMusicChangeKind { CREATED, MODIFIED, DELETED, RESCAN_ROOT }
+
+data class LocalMusicChange(val root: Path, val path: Path, val kind: LocalMusicChangeKind)
+
+/** Watches only explicitly enabled roots and coalesces filesystem bursts by canonical path. */
 class LocalMusicDirectoryWatcher(
     private val debounceMillis: Long = 750,
-    private val onChange: (Path) -> Unit,
+    private val reconnectCheckMillis: Long = 10_000L,
+    private val onChange: (LocalMusicChange) -> Unit,
 ) : AutoCloseable {
     private val keyDirectories = ConcurrentHashMap<WatchKey, Path>()
-    private val pending = ConcurrentHashMap<Path, ScheduledFuture<*>>()
-    private val scheduler = Executors.newSingleThreadScheduledExecutor { runnable ->
+    private val registeredDirectories = ConcurrentHashMap.newKeySet<String>()
+    private val failedDirectories = ConcurrentHashMap<String, Path>()
+    private val pendingLock = Any()
+    private val pending = mutableMapOf<ChangeKey, PendingChange>()
+    private val scheduler: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor { runnable ->
         Thread(runnable, "dmc-library-watch-debounce").apply { isDaemon = true }
     }
     @Volatile private var service: WatchService? = null
@@ -36,32 +46,22 @@ class LocalMusicDirectoryWatcher(
         check(!closed) { "Directory watcher has been closed" }
         val configuredRoots = rootPaths.map { path ->
             runCatching { path.toRealPath() }.getOrElse { path.toAbsolutePath().normalize() }
-        }.distinct()
+        }.distinctBy(::pathIdentity)
         if (configuredRoots == roots && (configuredRoots.isEmpty() || service != null)) return
         stopWatching()
         if (configuredRoots.isEmpty()) return
         val watchService = FileSystems.getDefault().newWatchService()
         service = watchService
         roots = configuredRoots
-        configuredRoots.filter(Files::isDirectory).forEach(::registerTree)
+        configuredRoots.filter { Files.isDirectory(it, LinkOption.NOFOLLOW_LINKS) }.forEach { root ->
+            if (!registerTree(root)) scheduleRootRescan(root)
+        }
         worker = Thread({ eventLoop(watchService) }, "dmc-library-directory-watcher").apply {
             isDaemon = true
             start()
         }
-        reconnectTask = scheduler.scheduleWithFixedDelay(
-            {
-                keyDirectories.keys.removeIf { !it.isValid }
-                roots.filter { root ->
-                    Files.isDirectory(root) && keyDirectories.values.none { it == root || it.startsWith(root) }
-                }.forEach { root ->
-                    registerTree(root)
-                    scheduleChange(root)
-                }
-            },
-            RECONNECT_CHECK_MILLIS,
-            RECONNECT_CHECK_MILLIS,
-            TimeUnit.MILLISECONDS,
-        )
+        val recoveryInterval = reconnectCheckMillis.coerceAtLeast(1L)
+        reconnectTask = scheduler.scheduleWithFixedDelay(::recoverDisconnectedRoots, recoveryInterval, recoveryInterval, TimeUnit.MILLISECONDS)
     }
 
     @Synchronized
@@ -73,25 +73,67 @@ class LocalMusicDirectoryWatcher(
         service?.let { runCatching { it.close() } }
         service = null
         keyDirectories.clear()
+        registeredDirectories.clear()
+        failedDirectories.clear()
         roots = emptyList()
-        pending.values.forEach { it.cancel(false) }
-        pending.clear()
-    }
-
-    private fun registerTree(start: Path) {
-        runCatching {
-            Files.walk(start).use { paths ->
-                paths.filter { Files.isDirectory(it, LinkOption.NOFOLLOW_LINKS) }
-                    .forEach(::registerDirectory)
-            }
+        synchronized(pendingLock) {
+            pending.values.forEach { it.future?.cancel(false) }
+            pending.clear()
         }
     }
 
-    private fun registerDirectory(directory: Path) {
-        val watchService = service ?: return
-        runCatching {
-            val key = directory.register(watchService, ENTRY_CREATE, ENTRY_MODIFY, ENTRY_DELETE)
-            keyDirectories[key] = directory
+    private fun registerTree(start: Path): Boolean {
+        var complete = true
+        return runCatching {
+            Files.walk(start).use { paths ->
+                paths.filter { Files.isDirectory(it, LinkOption.NOFOLLOW_LINKS) }
+                    .forEach { if (!registerDirectory(it)) complete = false }
+            }
+            complete
+        }.getOrDefault(false)
+    }
+
+    private fun registerDirectory(directory: Path): Boolean {
+        val watchService = service ?: return false
+        val canonical = directory.toAbsolutePath().normalize()
+        val identity = pathIdentity(canonical)
+        return runCatching {
+            if (identity in registeredDirectories) return@runCatching true
+            val key = canonical.register(watchService, ENTRY_CREATE, ENTRY_MODIFY, ENTRY_DELETE)
+            keyDirectories[key] = canonical
+            registeredDirectories += identity
+            failedDirectories.remove(identity)
+            true
+        }.getOrElse {
+            failedDirectories[identity] = canonical
+            false
+        }
+    }
+
+    private fun recoverDisconnectedRoots() {
+        if (closed) return
+        if (worker?.isAlive != true) {
+            val configured = roots
+            if (configured.isNotEmpty()) {
+                synchronized(this) {
+                    if (!closed && worker?.isAlive != true) {
+                        stopWatching()
+                        runCatching { start(configured) }
+                        configured.filter { Files.isDirectory(it) }.forEach(::scheduleRootRescan)
+                    }
+                }
+            }
+            return
+        }
+        roots.filter { root -> Files.isDirectory(root) && pathIdentity(root) !in registeredDirectories }.forEach { root ->
+            if (registerTree(root)) scheduleRootRescan(root)
+        }
+        failedDirectories.values.toList().forEach { directory ->
+            if (!Files.isDirectory(directory, LinkOption.NOFOLLOW_LINKS)) {
+                failedDirectories.remove(pathIdentity(directory))
+            } else if (registerTree(directory)) {
+                matchingRoots(directory).forEach(::scheduleRootRescan)
+            }
         }
     }
 
@@ -103,6 +145,7 @@ class LocalMusicDirectoryWatcher(
                 Thread.currentThread().interrupt()
                 break
             } catch (_: Exception) {
+                if (!closed) roots.forEach(::scheduleRootRescan)
                 break
             }
             val directory = keyDirectories[key]
@@ -110,38 +153,85 @@ class LocalMusicDirectoryWatcher(
                 key.reset()
                 continue
             }
+            val events = key.pollEvents()
+            val keyIsValid = key.reset()
+            processWatchEvents(directory, events, keyIsValid, key)
+        }
+    }
+
+    internal fun processWatchEvents(directory: Path, events: List<WatchEvent<*>>, keyIsValid: Boolean, key: WatchKey? = null) {
             var overflow = false
-            key.pollEvents().forEach { event ->
+            events.forEach { event ->
                 if (event.kind() == OVERFLOW) {
                     overflow = true
                 } else {
                     val relative = event.context() as? Path ?: return@forEach
                     val changed = directory.resolve(relative).normalize()
-                    if (event.kind() == ENTRY_CREATE && Files.isDirectory(changed, LinkOption.NOFOLLOW_LINKS)) {
-                        registerTree(changed)
+                    val eventKind = event.kind()
+                    val matchedRoots = matchingRoots(changed)
+                    if (Files.isDirectory(changed, LinkOption.NOFOLLOW_LINKS)) {
+                        if (eventKind == ENTRY_CREATE) registerTree(changed)
+                        matchedRoots.forEach(::scheduleRootRescan)
+                    } else {
+                        val kind = when (eventKind) {
+                            ENTRY_CREATE -> LocalMusicChangeKind.CREATED
+                            ENTRY_DELETE -> LocalMusicChangeKind.DELETED
+                            ENTRY_MODIFY -> LocalMusicChangeKind.MODIFIED
+                            else -> null
+                        }
+                        if (kind != null) matchedRoots.forEach { root -> scheduleChange(LocalMusicChange(root, changed, kind)) }
                     }
-                    matchingRoots(changed).forEach(::scheduleChange)
                 }
             }
-            if (overflow) roots.forEach(::scheduleChange)
-            if (!key.reset()) {
-                keyDirectories.remove(key)
-                matchingRoots(directory).forEach(::scheduleChange)
+            if (overflow) roots.forEach(::scheduleRootRescan)
+            if (!keyIsValid) {
+                key?.let(keyDirectories::remove)
+                registeredDirectories.remove(pathIdentity(directory))
+                matchingRoots(directory).forEach { root ->
+                    scheduleRootRescan(root)
+                    if (Files.isDirectory(directory, LinkOption.NOFOLLOW_LINKS)) registerTree(directory)
+                }
             }
+    }
+
+    internal fun scheduleRootRescan(rootPath: Path) {
+        val root = roots.firstOrNull { pathIdentity(it) == pathIdentity(rootPath) }
+            ?: runCatching { rootPath.toRealPath() }.getOrElse { rootPath.toAbsolutePath().normalize() }
+        scheduleChange(LocalMusicChange(root, root, LocalMusicChangeKind.RESCAN_ROOT))
+    }
+
+    private fun matchingRoots(path: Path): List<Path> {
+        val changed = pathIdentity(path)
+        return roots.filter { root ->
+            val rootKey = pathIdentity(root).trimEnd('/')
+            changed == rootKey || changed.startsWith("$rootKey/")
         }
     }
 
-    private fun matchingRoots(path: Path): List<Path> = roots.filter { path.normalize().startsWith(it) }
-
-    private fun scheduleChange(root: Path) {
-        val key = root.normalize()
-        pending.compute(key) { _, previous ->
-            previous?.cancel(false)
-            scheduler.schedule({
+    private fun scheduleChange(change: LocalMusicChange) {
+        val key = ChangeKey(pathIdentity(change.root), pathIdentity(change.path))
+        synchronized(pendingLock) {
+            val previous = pending[key]
+            previous?.future?.cancel(false)
+            val mergedKind = if (previous == null) change.kind else mergeChangeKinds(previous.change.kind, change.kind)
+            if (mergedKind == null) {
                 pending.remove(key)
-                runCatching { onChange(key) }
-            }, debounceMillis.coerceAtLeast(0), TimeUnit.MILLISECONDS)
+                return
+            }
+            val merged = change.copy(kind = mergedKind)
+            val scheduled = PendingChange(merged)
+            scheduled.future = scheduler.schedule({ flushChange(key, scheduled) }, debounceMillis.coerceAtLeast(0L), TimeUnit.MILLISECONDS)
+            pending[key] = scheduled
         }
+    }
+
+    private fun flushChange(key: ChangeKey, expected: PendingChange) {
+        val change = synchronized(pendingLock) {
+            if (pending[key] !== expected) return
+            pending.remove(key)
+            expected.change
+        }
+        runCatching { onChange(change) }
     }
 
     override fun close() {
@@ -153,7 +243,18 @@ class LocalMusicDirectoryWatcher(
         scheduler.shutdownNow()
     }
 
+    private data class ChangeKey(val root: String, val path: String)
+    private class PendingChange(val change: LocalMusicChange) { var future: ScheduledFuture<*>? = null }
+
     private companion object {
-        const val RECONNECT_CHECK_MILLIS = 10_000L
+        fun pathIdentity(path: Path): String = normalizedLibraryPath(path.toAbsolutePath().normalize().toString())
+
+        fun mergeChangeKinds(previous: LocalMusicChangeKind, next: LocalMusicChangeKind): LocalMusicChangeKind? = when {
+            next == LocalMusicChangeKind.RESCAN_ROOT || previous == LocalMusicChangeKind.RESCAN_ROOT -> LocalMusicChangeKind.RESCAN_ROOT
+            previous == LocalMusicChangeKind.CREATED && next == LocalMusicChangeKind.MODIFIED -> LocalMusicChangeKind.CREATED
+            previous == LocalMusicChangeKind.CREATED && next == LocalMusicChangeKind.DELETED -> null
+            previous == LocalMusicChangeKind.DELETED && next == LocalMusicChangeKind.CREATED -> LocalMusicChangeKind.MODIFIED
+            else -> next
+        }
     }
 }

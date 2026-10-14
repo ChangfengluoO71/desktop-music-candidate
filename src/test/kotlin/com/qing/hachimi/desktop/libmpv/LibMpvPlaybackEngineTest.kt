@@ -41,6 +41,7 @@ class LibMpvPlaybackEngineTest {
             assertEquals("no", client.options["load-scripts"])
             assertEquals("yes", client.options["idle"])
             assertEquals("wasapi", client.options["ao"])
+            assertEquals("no", client.options["audio-display"])
             assertEquals("no", client.options["audio-exclusive"])
             assertEquals("no", client.options["audio-fallback-to-null"])
             assertFalse(client.options.values.any { it == "null" })

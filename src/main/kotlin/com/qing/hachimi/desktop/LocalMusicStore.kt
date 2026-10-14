@@ -127,6 +127,39 @@ class LocalMusicStore(private val databasePath: Path) : AutoCloseable {
         Unit
     }
 
+    /** Removes a deleted file or subtree from one root; shared tracks survive other root memberships. */
+    fun removePathMembership(rootPath: String, path: Path): Int = synchronized(monitor) {
+        val target = normalizedLibraryPath(path.toAbsolutePath().normalize().toString())
+        var removedCount = 0
+        transaction {
+            val matchingKeys = connection.prepareStatement(
+                "SELECT t.path_key, t.file_path FROM tracks t JOIN root_tracks rt ON rt.path_key = t.path_key WHERE rt.root_path = ?",
+            ).use { statement ->
+                statement.setString(1, rootPath)
+                statement.executeQuery().use { result ->
+                    buildList {
+                        while (result.next()) {
+                            val filePath = normalizedLibraryPath(result.getString("file_path"))
+                            if (filePath == target || filePath.startsWith("$target/")) add(result.getString("path_key"))
+                        }
+                    }
+                }
+            }
+            matchingKeys.forEach { key ->
+                connection.prepareStatement("DELETE FROM root_tracks WHERE root_path = ? AND path_key = ?").use { statement ->
+                    statement.setString(1, rootPath)
+                    statement.setString(2, key)
+                    statement.executeUpdate()
+                }
+            }
+            connection.createStatement().use { statement ->
+                statement.executeUpdate("DELETE FROM tracks WHERE path_key NOT IN (SELECT path_key FROM root_tracks)")
+            }
+            removedCount = matchingKeys.size
+        }
+        removedCount
+    }
+
     /** Remove stale path memberships only after a complete root scan. */
     fun finishRootScan(rootPath: String, scanId: String) = synchronized(monitor) {
         transaction {
@@ -160,6 +193,14 @@ class LocalMusicStore(private val databasePath: Path) : AutoCloseable {
             statement.setLong(4, track.lastModifiedMillis)
             statement.executeUpdate() == 1
         }
+    }
+
+    fun clearContentHash(pathKey: String) = synchronized(monitor) {
+        connection.prepareStatement("UPDATE tracks SET content_sha256 = NULL WHERE path_key = ?").use { statement ->
+            statement.setString(1, pathKey)
+            statement.executeUpdate()
+        }
+        Unit
     }
 
     override fun close() = synchronized(monitor) {

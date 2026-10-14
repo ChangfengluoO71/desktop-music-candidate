@@ -11,6 +11,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.v2.runComposeUiTest
 import org.junit.jupiter.api.Test
@@ -20,6 +21,96 @@ import top.yukonga.miuix.kmp.theme.ThemeController
 import kotlin.test.assertEquals
 
 class LocalMusicScreenTest {
+    @OptIn(ExperimentalTestApi::class)
+    @Test
+    fun `browse tabs expose album artist song and folder views`() = runComposeUiTest {
+        var state by mutableStateOf(LocalMusicUiState(
+            roots = listOf(LocalMusicRoot("C:\\fixture", 1L)),
+            tracks = listOf(
+                testTrack("one", "Song One", "Artist One", "Album One"),
+                testTrack("two", "Song Two", "Artist One", "Album Two").copy(
+                    pathKey = "c:/fixture/Album/two.mp3", filePath = "C:\\fixture\\Album\\two.mp3",
+                ),
+            ),
+        ))
+        var nextTracks: List<LocalTrack>? = null
+        var startedTrack: LocalTrack? = null
+        setContent {
+            MiuixTheme(controller = ThemeController(ColorSchemeMode.System)) {
+                LocalMusicContent(
+                    state = state,
+                    onAddDirectories = {}, onRemoveRoot = {}, onScan = {}, onCancelScan = {},
+                    onAnalyzeDuplicates = {}, onCancelAnalysis = {}, onPreviewUpgrades = {},
+                    onFormatFilter = {}, onArtistFilter = {}, onAlbumFilter = {}, onSearchFilter = {},
+                    onBrowseMode = { state = state.copy(browseMode = it) },
+                    onSortMode = { state = state.copy(sortMode = it) },
+                    onFolderFilter = { state = state.copy(folderFilter = it) },
+                    onPlayNextTracks = { nextTracks = it },
+                    onPlayTrack = { startedTrack = it },
+                )
+            }
+        }
+        onNodeWithTag("local-browse-albums").assertIsDisplayed()
+        onNodeWithTag("local-browse-artists").assertIsDisplayed()
+        onNodeWithTag("local-browse-songs").assertIsDisplayed()
+        onNodeWithTag("local-browse-folders").assertIsDisplayed()
+        onNodeWithTag("local-album-grid").assertIsDisplayed()
+        onNodeWithTag("album-next-${state.tracks.first().pathKey.hashCode()}").performClick()
+        assertEquals(listOf("one"), nextTracks?.map(LocalTrack::id))
+        onNodeWithTag("local-browse-artists").performClick()
+        onNodeWithTag("local-artist-grid").assertIsDisplayed()
+        onNodeWithText("2 张专辑 · 2 首").assertIsDisplayed()
+        onNodeWithTag("artist-next-${"Artist One".hashCode()}").performClick()
+        assertEquals(2, nextTracks?.size)
+        onNodeWithTag("local-browse-songs").performClick()
+        onNodeWithTag("local-music-table").assertIsDisplayed()
+        onNodeWithTag("local-track-one").performTouchInput {
+            down(center)
+            up()
+            advanceEventTime(100)
+            down(center)
+            up()
+        }
+        assertEquals("one", startedTrack?.id)
+        listOf("title", "artist", "album", "format", "duration").forEach { onNodeWithTag("local-sort-$it").assertIsDisplayed() }
+        onNodeWithTag("local-sort-artist").performClick()
+        assertEquals(LocalMusicSortMode.ARTIST, state.sortMode)
+        onNodeWithTag("local-browse-folders").performClick()
+        onNodeWithTag("local-folder-list").assertIsDisplayed()
+        val nestedFolderKey = normalizedLibraryPath("C:\\fixture\\Album")
+        onNodeWithTag("local-folder-${nestedFolderKey.hashCode()}").performClick()
+        assertEquals("C:/fixture/Album", state.folderFilter)
+        assertEquals(listOf("two"), state.visibleTracks.map(LocalTrack::id))
+    }
+
+    @OptIn(ExperimentalTestApi::class)
+    @Test
+    fun `selecting a compilation album shows every album track`() = runComposeUiTest {
+        val first = testTrack("first", "Opening", "Singer One", "Soundtrack").copy(albumArtist = "Various Artists")
+        val second = testTrack("second", "Ending", "Singer Two", "Soundtrack").copy(albumArtist = "Various Artists")
+        var state by mutableStateOf(LocalMusicUiState(tracks = listOf(first, second)))
+        setContent {
+            MiuixTheme(controller = ThemeController(ColorSchemeMode.System)) {
+                LocalMusicContent(
+                    state = state,
+                    onAddDirectories = {}, onRemoveRoot = {}, onScan = {}, onCancelScan = {},
+                    onAnalyzeDuplicates = {}, onCancelAnalysis = {}, onPreviewUpgrades = {},
+                    onFormatFilter = {},
+                    onArtistFilter = { state = state.copy(artistFilter = it, selectedAlbumTrackKeys = null) },
+                    onAlbumFilter = { state = state.copy(albumFilter = it, selectedAlbumTrackKeys = null) },
+                    onAlbumSelection = { tracks ->
+                        state = state.copy(selectedAlbumTrackKeys = tracks.mapTo(linkedSetOf()) { it.pathKey })
+                    },
+                    onBrowseMode = { state = state.copy(browseMode = it) },
+                )
+            }
+        }
+
+        onNodeWithTag("local-album-${first.pathKey.hashCode()}").performClick()
+
+        assertEquals(setOf("first", "second"), state.visibleTracks.map(LocalTrack::id).toSet())
+    }
+
     @OptIn(ExperimentalTestApi::class)
     @Test
     fun `local music screen exposes scan controls and filters lazily rendered rows`() = runComposeUiTest {
@@ -51,6 +142,9 @@ class LocalMusicScreenTest {
                     onArtistFilter = { state = state.copy(artistFilter = it) },
                     onAlbumFilter = { state = state.copy(albumFilter = it) },
                     onSearchFilter = { state = state.copy(searchFilter = it) },
+                    onBrowseMode = { state = state.copy(browseMode = it) },
+                    onSortMode = { state = state.copy(sortMode = it) },
+                    onFolderFilter = { state = state.copy(folderFilter = it) },
                     onPlayTrack = { playedTrack = it },
                     onStartTracks = { startedTracks = it },
                 )
@@ -59,22 +153,23 @@ class LocalMusicScreenTest {
 
         onNodeWithTag("local-music-add-root").assertIsDisplayed()
         onNodeWithTag("local-music-scan").assertIsDisplayed()
+        onNodeWithTag("local-album-grid").assertIsDisplayed()
+        onNodeWithTag("local-browse-songs").performClick()
         onNodeWithTag("local-music-table").assertIsDisplayed()
-        onNodeWithTag("local-music-album-wall").assertIsDisplayed()
         onNodeWithTag("local-music-search").assertIsDisplayed()
         onNodeWithTag("local-music-watch-${"C:\\fixture".hashCode()}").assertIsDisplayed()
-        onNodeWithText("Jazz Track").assertIsDisplayed()
-        onNodeWithTag("local-track-play-first").performClick()
-        assertEquals("first", playedTrack?.id)
         onNodeWithTag("local-music-play-filtered").performClick()
         assertEquals(1_202, startedTracks?.size)
         onAllNodesWithTag("local-track-bulk-1199").assertCountEquals(0)
         onNodeWithTag("local-music-artist-filter").performTextInput("Blue")
         onNodeWithText("Jazz Track").assertIsDisplayed()
+        onNodeWithTag("local-track-play-first").performClick()
+        assertEquals("first", playedTrack?.id)
         onAllNodesWithText("Rock Track").assertCountEquals(0)
         assertEquals(1, state.visibleTracks.size)
         onNodeWithTag("local-music-search").performTextInput("Rock")
         assertEquals(0, state.visibleTracks.size)
+        onNodeWithTag("local-browse-albums").performClick()
         onNodeWithTag("local-album-${first.pathKey.hashCode()}").performClick()
         assertEquals("Blue Album", state.albumFilter)
     }

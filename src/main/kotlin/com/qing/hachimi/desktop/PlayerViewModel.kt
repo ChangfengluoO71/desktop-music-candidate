@@ -25,7 +25,6 @@ data class PlayerUiState(
     val isLoadingLyrics: Boolean = false,
     val lyricsUnavailable: Boolean = false,
     val queueRecoveryWarning: String? = null,
-    val isNowPlayingOpen: Boolean = false,
 ) {
     val activeLyrics: List<TimedLyricLine> get() = lyrics.lines(lyricVariant)
     val activeLyricIndex: Int get() = lyrics.currentLineIndex(lyricVariant, playback.positionMillis)
@@ -72,6 +71,8 @@ class PlayerViewModel(
     fun play(track: LocalTrack) = scope.launch { restored.await(); coordinator.play(track) }
     fun playTracks(tracks: List<LocalTrack>) = scope.launch { restored.await(); coordinator.playTracks(tracks) }
     fun enqueue(tracks: List<LocalTrack>) = scope.launch { restored.await(); coordinator.enqueue(tracks) }
+    fun playNext(track: LocalTrack) = scope.launch { restored.await(); coordinator.enqueueNext(track) }
+    fun playNextTracks(tracks: List<LocalTrack>) = scope.launch { restored.await(); coordinator.enqueueNext(tracks) }
     fun playQueueIndex(index: Int) = scope.launch { restored.await(); coordinator.playIndex(index) }
     fun moveQueueItem(fromIndex: Int, toIndex: Int) = scope.launch { restored.await(); coordinator.moveQueueItem(fromIndex, toIndex) }
     fun removeFromQueue(index: Int) = scope.launch { restored.await(); coordinator.removeFromQueue(index) }
@@ -85,8 +86,6 @@ class PlayerViewModel(
     fun setShuffle(enabled: Boolean) = scope.launch { restored.await(); coordinator.setShuffle(enabled) }
     fun setRepeatMode(mode: PlaybackRepeatMode) = scope.launch { restored.await(); coordinator.setRepeatMode(mode) }
     fun selectLyricVariant(variant: LyricVariant) = mutableState.update { it.copy(lyricVariant = variant) }
-    fun openNowPlaying() = mutableState.update { it.copy(isNowPlayingOpen = true) }
-    fun closeNowPlaying() = mutableState.update { it.copy(isNowPlayingOpen = false) }
 
     suspend fun close() {
         restored.await()

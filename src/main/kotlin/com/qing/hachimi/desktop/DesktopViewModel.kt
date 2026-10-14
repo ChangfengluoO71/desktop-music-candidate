@@ -24,7 +24,7 @@ import java.nio.file.Path
 import java.util.UUID
 import java.util.logging.Logger
 
-enum class DesktopPage { DISCOVERY, SEARCH, COLLECTIONS, DOWNLOADS, LOCAL_MUSIC, SETTINGS }
+enum class DesktopPage { DISCOVERY, SEARCH, COLLECTIONS, DOWNLOADS, LOCAL_MUSIC, NOW_PLAYING, SETTINGS }
 enum class DiscoveryDetail { HOME, DAILY_RECOMMENDATIONS, USER_PLAYLIST }
 enum class ArtworkPreviewKind { SONG, ALBUM }
 enum class ArtworkSaveKind { SONG, ALBUM }

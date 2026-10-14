@@ -23,6 +23,13 @@ enum class LocalMetadataStatus {
 
 enum class LocalTitleSource { TAG, FILENAME, UNKNOWN }
 
+enum class LocalMusicBrowseMode { ALBUMS, ARTISTS, SONGS, FOLDERS }
+
+enum class LocalMusicSortMode { TITLE, ARTIST, ALBUM, FORMAT, DURATION }
+
+internal fun normalizedLibraryPath(path: String): String =
+    path.replace('\\', '/').replace(Regex("/+"), "/").trimEnd('/').lowercase(Locale.ROOT)
+
 enum class LocalScanErrorKind {
     INVALID_ROOT,
     ROOT_MISSING,

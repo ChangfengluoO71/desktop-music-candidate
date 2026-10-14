@@ -25,6 +25,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -72,11 +73,12 @@ fun main() = application {
     val instanceLock = remember {
         DesktopInstanceLock.tryAcquire(appDataDirectory.resolve("instance.lock"))
     }
+    val artworkRepository = remember { LocalArtworkRepository() }
     val viewModel = remember(instanceLock) {
         instanceLock?.let { DesktopViewModel.createDefault(appDataDirectory) }
     }
     val localMusicViewModel = remember(instanceLock) {
-        instanceLock?.let { LocalMusicViewModel.createDefault(appDataDirectory) }
+        instanceLock?.let { LocalMusicViewModel.createDefault(appDataDirectory, artworkRepository::invalidate) }
     }
     val playbackEngine = remember(localMusicViewModel, appDataDirectory) {
         localMusicViewModel?.let {
@@ -130,7 +132,7 @@ fun main() = application {
                 exitApplicationNow()
             })
         } else {
-            HachimiDesktopApp(viewModel, localMusicViewModel, playerViewModel)
+            HachimiDesktopApp(viewModel, localMusicViewModel, playerViewModel, artworkRepository)
         }
         if (closeRequested && viewModel != null) {
             DialogWindow(
@@ -202,6 +204,7 @@ internal fun HachimiDesktopApp(
     viewModel: DesktopViewModel,
     localMusicViewModel: LocalMusicViewModel? = null,
     playerViewModel: PlayerViewModel? = null,
+    artworkRepository: LocalArtworkRepository? = null,
 ) {
     val ui by viewModel.ui.collectAsState()
     val settings by viewModel.settings.collectAsState()
@@ -209,6 +212,10 @@ internal fun HachimiDesktopApp(
     val collectionImports by viewModel.collectionImports.collectAsState()
     val persistenceWarning by viewModel.persistenceWarning.collectAsState()
     val controller = remember { ThemeController(ColorSchemeMode.System) }
+    val sharedArtworkRepository = artworkRepository ?: remember { LocalArtworkRepository() }
+    DisposableEffect(sharedArtworkRepository) {
+        onDispose { sharedArtworkRepository.close() }
+    }
 
     MiuixTheme(controller = controller) {
         Row(
@@ -241,6 +248,9 @@ internal fun HachimiDesktopApp(
                 NavigationButton("本地音乐", ui.page == DesktopPage.LOCAL_MUSIC, Modifier.testTag("nav-local-music")) {
                     viewModel.navigate(DesktopPage.LOCAL_MUSIC)
                 }
+                NavigationButton("正在播放", ui.page == DesktopPage.NOW_PLAYING, Modifier.testTag("nav-now-playing")) {
+                    viewModel.navigate(DesktopPage.NOW_PLAYING)
+                }
                 NavigationButton("设置", ui.page == DesktopPage.SETTINGS) {
                     viewModel.navigate(DesktopPage.SETTINGS)
                 }
@@ -264,6 +274,7 @@ internal fun HachimiDesktopApp(
                             DesktopPage.COLLECTIONS -> "歌单 / 专辑"
                             DesktopPage.DOWNLOADS -> "下载管理"
                             DesktopPage.LOCAL_MUSIC -> "本地音乐"
+                            DesktopPage.NOW_PLAYING -> "正在播放"
                             DesktopPage.SETTINGS -> "设置"
                         },
                         style = MiuixTheme.textStyles.headline1,
@@ -281,12 +292,16 @@ internal fun HachimiDesktopApp(
                         DesktopPage.SEARCH -> SearchScreen(viewModel, ui, settings)
                         DesktopPage.COLLECTIONS -> CollectionScreen(viewModel, ui, settings, tasks, collectionImports)
                         DesktopPage.DOWNLOADS -> DownloadsScreen(viewModel, tasks, collectionImports)
-                        DesktopPage.LOCAL_MUSIC -> if (localMusicViewModel != null) LocalMusicScreen(localMusicViewModel, playerViewModel)
+                        DesktopPage.LOCAL_MUSIC -> if (localMusicViewModel != null) LocalMusicScreen(localMusicViewModel, playerViewModel, sharedArtworkRepository)
                         else Text("本地音乐索引暂时不可用。")
+                        DesktopPage.NOW_PLAYING -> playerViewModel?.let { NowPlayingScreen(it, sharedArtworkRepository) }
+                            ?: Text("本地播放器暂时不可用。")
                         DesktopPage.SETTINGS -> SettingsScreen(viewModel, settings, ui.downloadDiagnosticsEnabled)
                     }
                 }
-                playerViewModel?.let { PlayerMiniBar(it) }
+                playerViewModel?.let { player ->
+                    PlayerMiniBar(player, onOpenNowPlaying = { viewModel.navigate(DesktopPage.NOW_PLAYING) }, artworkRepository = sharedArtworkRepository)
+                }
             }
         }
         ui.artworkPreview?.let { ArtworkPreviewDialog(viewModel, it) }

@@ -264,6 +264,7 @@ class LibMpvPlaybackEngine internal constructor(
             "idle" to "yes",
             "pause" to "yes",
             "ao" to "wasapi",
+            "audio-display" to "no",
             "audio-exclusive" to "no",
             "audio-fallback-to-null" to "no",
         ).forEach { (name, value) -> checkNative("configure $name") { it.setOption(name, value) } }

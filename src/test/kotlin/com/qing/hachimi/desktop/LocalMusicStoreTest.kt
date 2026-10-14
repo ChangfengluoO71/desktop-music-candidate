@@ -50,6 +50,25 @@ class LocalMusicStoreTest {
     }
 
     @Test
+    fun `removing a changed path from one root preserves overlapping membership`() = runBlocking {
+        val root = Files.createDirectory(temp.resolve("overlap"))
+        val nestedRoot = Files.createDirectory(root.resolve("nested"))
+        val song = nestedRoot.resolve("song.mp3")
+        javaClass.getResourceAsStream("/audio-fixtures/synthetic-tone.mp3")!!.use { Files.copy(it, song) }
+        LocalMusicStore(temp.resolve("overlap.db")).use { store ->
+            DesktopMusicScanner(store).scan(listOf(root, nestedRoot))
+            assertEquals(1, store.loadTracks().size)
+
+            assertEquals(1, store.removePathMembership(root.toRealPath().toString(), song))
+            assertEquals(1, store.loadTracks().size)
+
+            assertEquals(1, store.removePathMembership(nestedRoot.toRealPath().toString(), song))
+            assertTrue(store.loadTracks().isEmpty())
+            assertTrue(Files.exists(song))
+        }
+    }
+
+    @Test
     fun `corrupt index is preserved and a fresh index can start`() {
         val database = temp.resolve("library.db")
         Files.writeString(database, "not a sqlite database")

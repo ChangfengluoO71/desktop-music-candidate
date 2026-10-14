@@ -116,6 +116,24 @@ class PlaybackCoordinator(
         execute(work)
     }
 
+    suspend fun enqueueNext(track: LocalTrack) = enqueueNext(listOf(track))
+
+    /** Inserts unique tracks immediately after the current track without interrupting playback. */
+    suspend fun enqueueNext(tracks: List<LocalTrack>) {
+        val work = stateMutex.withLock {
+            val current = mutableState.value
+            val known = current.queue.mapTo(HashSet()) { it.pathKey }
+            val additions = tracks.filter { it.pathKey.isNotBlank() && known.add(it.pathKey) }
+            if (additions.isEmpty()) return@withLock null
+            val insertAt = if (current.currentTrack != null) (current.queueIndex + 1).coerceIn(0, current.queue.size)
+            else current.queueIndex.coerceAtLeast(0).coerceAtMost(current.queue.size)
+            val queue = current.queue.toMutableList().apply { addAll(insertAt, additions) }
+            mutableState.value = current.copy(queue = queue, error = null)
+            if (current.currentTrack == null && !current.isLoading) prepareStartLocked(insertAt) else null
+        }
+        execute(work)
+    }
+
     suspend fun play(track: LocalTrack) = playTracks(listOf(track))
 
     suspend fun playTracks(tracks: List<LocalTrack>) {

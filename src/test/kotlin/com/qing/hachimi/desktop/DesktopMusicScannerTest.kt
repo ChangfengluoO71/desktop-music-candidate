@@ -165,6 +165,110 @@ class DesktopMusicScannerTest {
     }
 
     @Test
+    fun `watch changes reparse only touched files and respect overlapping root memberships`() = runBlocking {
+        val root = Files.createDirectory(temp.resolve("watch-root"))
+        val nested = Files.createDirectory(root.resolve("nested"))
+        val untouched = Files.write(root.resolve("untouched.mp3"), byteArrayOf(1, 2, 3))
+        val touched = Files.write(nested.resolve("touched.mp3"), byteArrayOf(1, 2, 3))
+        val reader = CountingMetadataReader(EmptyMetadataReader)
+        LocalMusicStore(temp.resolve("watch-incremental.db")).use { store ->
+            val scanner = DesktopMusicScanner(store, reader)
+            scanner.scan(listOf(root, nested))
+            assertEquals(2, reader.reads)
+
+            Files.write(touched, byteArrayOf(1, 2, 3, 4))
+            scanner.applyChanges(listOf(LocalMusicChange(nested, touched, LocalMusicChangeKind.MODIFIED)))
+            assertEquals(3, reader.reads)
+            assertEquals(2, store.loadTracks().size)
+
+            scanner.applyChanges(listOf(LocalMusicChange(root, touched, LocalMusicChangeKind.DELETED)))
+            assertTrue(store.loadTracks().any { it.filePath == touched.toRealPath().toString() })
+
+            Files.delete(touched)
+            scanner.applyChanges(listOf(LocalMusicChange(nested, touched, LocalMusicChangeKind.DELETED)))
+            assertFalse(store.loadTracks().any { it.filePath == touched.toString() })
+            assertTrue(Files.exists(untouched))
+            assertEquals(3, reader.reads)
+        }
+    }
+
+    @Test
+    fun `stale watcher events do not recreate a removed root`() = runBlocking {
+        val root = Files.createDirectory(temp.resolve("removed-watch-root"))
+        val song = Files.write(root.resolve("song.mp3"), byteArrayOf(1, 2, 3))
+        LocalMusicStore(temp.resolve("removed-watch-root.db")).use { store ->
+            val scanner = DesktopMusicScanner(store, EmptyMetadataReader, stabilitySampleMillis = 1)
+            scanner.scan(listOf(root))
+            val registeredRoot = store.loadRoots().single()
+            store.removeRoot(registeredRoot.path)
+
+            scanner.applyChanges(
+                listOf(
+                    LocalMusicChange(root, root, LocalMusicChangeKind.RESCAN_ROOT),
+                    LocalMusicChange(root, song, LocalMusicChangeKind.MODIFIED),
+                ),
+            )
+
+            assertTrue(store.loadRoots().isEmpty())
+            assertTrue(store.loadTracks().isEmpty())
+        }
+    }
+
+    @Test
+    fun `attribute access failures preserve indexed file and request retry`() = runBlocking {
+        val root = Files.createDirectory(temp.resolve("unreadable-watch-root"))
+        val song = Files.write(root.resolve("song.mp3"), byteArrayOf(1, 2, 3))
+        LocalMusicStore(temp.resolve("unreadable-watch-root.db")).use { store ->
+            val initialScanner = DesktopMusicScanner(store, EmptyMetadataReader, stabilitySampleMillis = 1)
+            initialScanner.scan(listOf(root))
+            val oldTrack = store.loadTracks().single()
+            val scanner = DesktopMusicScanner(
+                store,
+                EmptyMetadataReader,
+                stabilitySampleMillis = 1,
+                fileAttributesReader = { path ->
+                    if (path == song) throw AccessDeniedException(path.toString())
+                    Files.readAttributes(path, java.nio.file.attribute.BasicFileAttributes::class.java, java.nio.file.LinkOption.NOFOLLOW_LINKS)
+                },
+            )
+
+            val result = scanner.applyChanges(listOf(LocalMusicChange(root, song, LocalMusicChangeKind.MODIFIED)))
+
+            assertEquals(1, result.retryChanges.size)
+            assertEquals(oldTrack, store.loadTracks().single())
+        }
+    }
+
+    @Test
+    fun `watch create indexes a stable file and unstable writes preserve prior record`() = runBlocking {
+        val root = Files.createDirectory(temp.resolve("stable-watch"))
+        val song = Files.write(root.resolve("song.mp3"), byteArrayOf(1, 2, 3))
+        val reader = CountingMetadataReader(EmptyMetadataReader)
+        LocalMusicStore(temp.resolve("stable-watch.db")).use { store ->
+            val scanner = DesktopMusicScanner(store, reader, stabilitySampleMillis = 1, stabilityTimeoutMillis = 100)
+            scanner.scan(listOf(root))
+            val oldTrack = store.loadTracks().single()
+
+            val created = Files.write(root.resolve("new.mp3"), byteArrayOf(9, 8))
+            scanner.applyChanges(listOf(LocalMusicChange(root, created, LocalMusicChangeKind.CREATED)))
+            assertEquals(setOf("song", "new"), store.loadTracks().map { it.title.substringBeforeLast('.') }.toSet())
+
+            var writeCount = 0
+            val unstableScanner = DesktopMusicScanner(
+                store, reader, stabilitySampleMillis = 5, stabilityTimeoutMillis = 60,
+                stabilityDelay = { millis ->
+                    kotlinx.coroutines.delay(millis)
+                    val size = 2 + (writeCount++ % 7)
+                    Files.write(song, ByteArray(size) { 1 })
+                },
+            )
+            val result = unstableScanner.applyChanges(listOf(LocalMusicChange(root, song, LocalMusicChangeKind.MODIFIED)))
+            assertEquals(1, result.retryChanges.size)
+            assertEquals(oldTrack.fileSize, store.findTrack(oldTrack.pathKey)?.fileSize)
+        }
+    }
+
+    @Test
     fun `permission errors are isolated from other files`() = runBlocking {
         val root = Files.createDirectory(temp.resolve("permissions"))
         Files.write(root.resolve("denied.mp3"), byteArrayOf(1, 2, 3))

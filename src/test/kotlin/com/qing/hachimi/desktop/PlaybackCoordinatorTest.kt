@@ -33,6 +33,37 @@ class PlaybackCoordinatorTest {
     }
 
     @Test
+    fun `play next inserts after current and preserves upcoming order`() = runBlocking {
+        val engine = FakePlaybackEngine()
+        val player = PlaybackCoordinator(engine, Dispatchers.Default)
+        try {
+            val tracks = listOf(track("one"), track("two"), track("three"))
+            player.enqueue(tracks)
+            player.enqueueNext(listOf(track("four"), track("five"), tracks[1]))
+
+            assertEquals(listOf("one", "four", "five", "two", "three"), player.state.value.queue.map(LocalTrack::id))
+            assertEquals("one", player.state.value.currentTrack?.id)
+            assertEquals(0, player.state.value.queueIndex)
+            assertEquals(listOf("one"), engine.loaded.map { it.track.id })
+        } finally {
+            player.close()
+        }
+    }
+
+    @Test
+    fun `play next starts immediately when the player is idle`() = runBlocking {
+        val engine = FakePlaybackEngine()
+        val player = PlaybackCoordinator(engine, Dispatchers.Default)
+        try {
+            player.enqueueNext(track("first"))
+            assertEquals("first", player.state.value.currentTrack?.id)
+            assertTrue(player.state.value.isPlaying)
+        } finally {
+            player.close()
+        }
+    }
+
+    @Test
     fun `play tracks atomically replaces queue and begins with first unique local track`() = runBlocking {
         val engine = FakePlaybackEngine()
         val player = PlaybackCoordinator(engine, Dispatchers.Default)
