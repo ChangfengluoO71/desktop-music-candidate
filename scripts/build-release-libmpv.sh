@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_root="${GITHUB_WORKSPACE:?GITHUB_WORKSPACE is required}"
-runner_temp="${RUNNER_TEMP:?RUNNER_TEMP is required}"
+repo_root="$(cygpath -u "${GITHUB_WORKSPACE:?GITHUB_WORKSPACE is required}")"
+runner_temp="$(cygpath -u "${RUNNER_TEMP:?RUNNER_TEMP is required}")"
 release_root="$repo_root/build/release-libmpv"
 work_root="$runner_temp/dmc-lgpl-libmpv"
 source_root="$work_root/source"
