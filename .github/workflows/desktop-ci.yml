@@ -89,10 +89,14 @@ jobs:
             mingw-w64-ucrt-x86_64-python-jinja
             mingw-w64-ucrt-x86_64-cmake
             mingw-w64-ucrt-x86_64-libwinpthread
+            mingw-w64-ucrt-x86_64-vulkan-headers
 
       - name: Verify native shader build dependencies
         shell: msys2 {0}
-        run: python -c "import jinja2; print(f'Jinja2 {jinja2.__version__} ready')"
+        run: |
+          python -c "import jinja2; print(f'Jinja2 {jinja2.__version__} ready')"
+          test -s "$MINGW_PREFIX/include/vulkan/vulkan.h"
+          test -s "$MINGW_PREFIX/share/licenses/vulkan-headers/LICENSE"
 
       - name: Build stable LGPL runtime from pinned sources
         shell: msys2 {0}

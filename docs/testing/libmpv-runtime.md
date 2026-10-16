@@ -18,6 +18,7 @@ The exact build output is recorded in `libmpv/runtime-manifest.json` inside the 
 | FriBidi | 1.0.17 | `b93119f5fdc7ea47672cc304c1455ffa6dfe7536` | LGPL-2.1-or-later |
 | HarfBuzz | 12.2.0 | `0426759f2b03e479495e987608f10e0866e70180` | MIT |
 | Winpthreads | MSYS2 package version recorded in the runtime manifest | Matching MSYS2 source package recorded in the source bundle | MIT and BSD-3-Clause |
+| Vulkan-Headers | MSYS2 package version recorded in `toolchain-packages.txt` | Build-time headers only; Vulkan support remains disabled and no Vulkan loader/runtime is shipped | Apache-2.0 |
 
 `build-release-libmpv.sh` records the downloaded source archive checksums, Windows import names, and MSYS2 package versions. The corresponding-source archive includes the exact input archives, the matching MSYS2 Winpthreads source package, and the build script. The runtime keeps Winpthreads as a separate DLL; the Windows smoke check requires it in the import closure and installer. GCC runtime helpers are static and built with the GCC Runtime Library Exception; the matching exception text is included in the installer. This is provenance for the actual candidate; it does not claim a bit-for-bit reproducible build on an unspecified host.
 
@@ -42,5 +43,6 @@ Jaudiotagger is independently replaceable at `{app}\app\jaudiotagger-3.0.1.jar`;
 - [FFmpeg licensing and legal considerations](https://ffmpeg.org/legal.html)
 - [FFmpeg 8.0.3 release and source archives](https://ffmpeg.org/download.html)
 - [MSYS2 Winpthreads package, license IDs, source package and installed COPYING path](https://packages.msys2.org/packages/mingw-w64-ucrt-x86_64-libwinpthread)
+- [MSYS2 Vulkan-Headers package and Apache-2.0 license](https://packages.msys2.org/packages/mingw-w64-ucrt-x86_64-vulkan-headers)
 - [GCC libstdc++ license and Runtime Library Exception 3.1](https://gcc.gnu.org/onlinedocs/libstdc++/manual/license.html)
 - [LGPL 2.1 text included by DMC](../../LICENSES/LGPL-2.1.txt)

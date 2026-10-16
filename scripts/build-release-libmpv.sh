@@ -178,6 +178,7 @@ if [[ -z "$gcc_runtime_license" ]]; then
     exit 1
 fi
 cp "$gcc_runtime_license" "$release_root/licenses/libmpv/GCC-COPYING.RUNTIME.txt"
+cp "$MINGW_PREFIX/share/licenses/vulkan-headers/LICENSE" "$release_root/licenses/libmpv/Vulkan-Headers-LICENSE.txt"
 pacman -Q | sort > "$release_root/toolchain-packages.txt"
 
 resolve_runtime_component() {
@@ -226,7 +227,7 @@ cat > "$source_bundle_root/BUILDING.md" <<'EOF'
 
 This source bundle contains the exact source archives used for the DMC Windows libmpv runtime, the matching MSYS2 Winpthreads source package, their SHA-256 list, and the pinned build script. It targets x86_64 Windows GNU and builds shared LGPL components so the installed DLLs can be replaced independently. Winpthreads is shipped as a separate DLL to keep its own runtime replaceable.
 
-Build prerequisites: MSYS2 UCRT64 with GCC/G++, Meson, Ninja, pkgconf, yasm, nasm, Python, Git, curl, and tar. The included script fetches the immutable source revisions listed in `source/SHA256SUMS.txt`, verifies their SHA-256 values, configures the shared libraries, and builds them. The matching Winpthreads source package and license are taken from the same MSYS2 package version recorded in `build-inputs/winpthreads-source-info.tsv`. Run it from an MSYS2 UCRT64 shell with `GITHUB_WORKSPACE` and `RUNNER_TEMP` set. The tested CI job records the exact toolchain package versions in its artifact metadata.
+Build prerequisites: MSYS2 UCRT64 with GCC/G++, Meson, Ninja, pkgconf, yasm, nasm, Python with Jinja2, Vulkan headers, Git, curl, and tar. Vulkan is disabled in the runtime; its headers are needed to compile libplacebo's no-Vulkan stubs and no Vulkan loader/runtime is shipped. The included script fetches the immutable source revisions listed in `source/SHA256SUMS.txt`, verifies their SHA-256 values, configures the shared libraries, and builds them. The matching Winpthreads source package and license are taken from the same MSYS2 package version recorded in `build-inputs/winpthreads-source-info.tsv`. Run it from an MSYS2 UCRT64 shell with `GITHUB_WORKSPACE` and `RUNNER_TEMP` set. The tested CI job records the exact toolchain package versions in its artifact metadata.
 
 The runtime is configured with mpv `-Dgpl=false`, FFmpeg `gpl=disabled`, `version3=disabled`, and `nonfree=disabled`. The source archives preserve each upstream project's license and copyright notices.
 EOF
@@ -283,6 +284,7 @@ This directory contains the native playback runtime's license texts. The exact c
 | HarfBuzz | 12.2.0 | MIT |
 | Winpthreads | See `runtime-manifest.json` | MIT and BSD-3-Clause |
 | GCC runtime helpers | See `toolchain-packages.txt` | GCC Runtime Library Exception 3.1 |
+| Vulkan-Headers | See `toolchain-packages.txt` | Apache-2.0; build-time headers only, Vulkan support disabled and no Vulkan runtime shipped |
 
 Use the included DLLs in the `libmpv` directory or replace those files with compatible rebuilt DLLs from the corresponding source. Keep the installed DLL names and architecture unchanged. DMC loads libmpv only from its private runtime directory.
 EOF

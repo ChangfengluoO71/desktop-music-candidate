@@ -131,6 +131,9 @@ if (-not ($runtimeFiles | Where-Object { $_.file -ieq 'libwinpthread-1.dll' -and
 if (-not (Test-Path -LiteralPath (Join-Path $root 'licenses\libmpv\winpthreads-COPYING.txt') -PathType Leaf) -or -not (Test-Path -LiteralPath (Join-Path $root 'licenses\libmpv\GCC-COPYING.RUNTIME.txt') -PathType Leaf)) {
     throw 'The release payload is missing the Winpthreads or GCC runtime license text.'
 }
+if (-not (Test-Path -LiteralPath (Join-Path $root 'licenses\libmpv\Vulkan-Headers-LICENSE.txt') -PathType Leaf)) {
+    throw 'The release payload is missing the build-time Vulkan-Headers Apache-2.0 notice.'
+}
 if ($env:GITHUB_SHA -and $manifest.build.sourceCommit -ne $env:GITHUB_SHA) {
     throw 'The native runtime source commit differs from the application source commit.'
 }
