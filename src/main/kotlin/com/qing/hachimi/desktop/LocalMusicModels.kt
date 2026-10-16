@@ -27,8 +27,20 @@ enum class LocalMusicBrowseMode { ALBUMS, ARTISTS, SONGS, FOLDERS }
 
 enum class LocalMusicSortMode { TITLE, ARTIST, ALBUM, FORMAT, DURATION }
 
-internal fun normalizedLibraryPath(path: String): String =
-    path.replace('\\', '/').replace(Regex("/+"), "/").trimEnd('/').lowercase(Locale.ROOT)
+/** Canonical comparison form for Windows paths, including long-path and UNC spellings. */
+internal fun normalizedLibraryPath(path: String): String {
+    val slashed = path.replace('\\', '/').let { value ->
+        when {
+            value.startsWith("//?/UNC/", ignoreCase = true) -> "//${value.substring(8)}"
+            value.startsWith("//?/", ignoreCase = true) -> value.substring(4)
+            value.startsWith("/??/", ignoreCase = true) -> value.substring(4)
+            else -> value
+        }
+    }
+    val uncPrefix = if (slashed.startsWith("//")) "//" else ""
+    val collapsed = slashed.removePrefix(uncPrefix).replace(Regex("/+"), "/")
+    return (uncPrefix + collapsed).trimEnd('/').lowercase(Locale.ROOT)
+}
 
 enum class LocalScanErrorKind {
     INVALID_ROOT,

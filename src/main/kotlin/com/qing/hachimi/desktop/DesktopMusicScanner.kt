@@ -432,7 +432,7 @@ class DesktopMusicScanner(
         )
     }
 
-    private fun rootIdentity(path: Path): String = path.toAbsolutePath().normalize().toString().lowercase(Locale.ROOT)
+    private fun rootIdentity(path: Path): String = normalizedLibraryPath(path.toAbsolutePath().normalize().toString())
     private fun Path.extension(): String = fileName?.toString()?.substringAfterLast('.', "").orEmpty()
 
     private fun formatFor(path: Path): LocalAudioFormat = when (path.extension().lowercase(Locale.ROOT)) {
