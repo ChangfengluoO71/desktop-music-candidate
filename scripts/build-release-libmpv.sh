@@ -145,9 +145,7 @@ meson setup "$build_root" "$mpv_root" \
     -Dlibplacebo:shaderc=disabled -Dlibplacebo:glslang=disabled \
     -Dlibplacebo:lcms=disabled -Dlibplacebo:dovi=disabled \
     -Dlibplacebo:libdovi=disabled -Dlibplacebo:xxhash=disabled \
-    -Dlibplacebo:unwind=disabled \
-    -Dc_link_args=-static-libgcc \
-    -Dcpp_link_args=-static-libgcc,-static-libstdc++
+    -Dlibplacebo:unwind=disabled
 
 meson compile -C "$build_root"
 meson install -C "$build_root"
