@@ -60,7 +60,7 @@ fetch_source harfbuzz \
 fetch_build_input() {
     local url="$1" sha256="$2" filename="$3"
     curl --fail --location --retry 3 --output "$release_root/$filename" "$url"
-    printf '%s  %s\n' "$sha256" "$release_root/$filename" | sha256sum --check --status
+    printf '%s  %s\n' "$sha256" "$release_root/$filename" | sha256sum --check
     printf '%s  %s\n' "$sha256" "$filename" >> "$release_root/source-inputs-SHA256SUMS.txt"
 }
 
@@ -71,7 +71,7 @@ fetch_build_input \
     'libpng-1.6.50.tar.gz'
 fetch_build_input \
     'https://wrapdb.mesonbuild.com/v2/libpng_1.6.50-2/get_patch' \
-    'A9C9362BBC8BB422C864807A174977DEC3868CDFF8CA380E27BAB6EE1CAA22EA' \
+    'A9C9362BB8CBB422C864807A174977DEC3868CDFF8CA380E27BAB6EE1CAA22EA' \
     'libpng_1.6.50-2_patch.zip'
 fetch_build_input \
     'https://zlib.net/fossils/zlib-1.3.1.tar.gz' \

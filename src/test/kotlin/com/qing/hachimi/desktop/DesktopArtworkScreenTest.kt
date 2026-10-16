@@ -43,6 +43,7 @@ class DesktopArtworkScreenTest {
             onNodeWithTag("artwork-preview-dialog").assertIsDisplayed()
             onNodeWithTag("artwork-preview-close").performClick()
             waitUntil(conditionDescription = "artwork preview closed") { harness.viewModel.ui.value.artworkPreview == null }
+            waitForIdle()
         } finally {
             harness.close()
         }
