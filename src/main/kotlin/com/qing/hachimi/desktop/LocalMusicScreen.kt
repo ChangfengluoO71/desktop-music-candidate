@@ -511,7 +511,7 @@ private fun buildFolderEntries(roots: List<LocalMusicRoot>, tracks: List<LocalTr
     val entries = linkedMapOf<String, LocalFolderEntry>()
     roots.forEach { root ->
         val rootPath = root.path.replace('\\', '/').trimEnd('/')
-        val rootKey = normalizedLibraryPath(rootPath)
+        val rootKey = normalizedLibraryPath(Path.of(rootPath))
         val rootParts = rootPath.split('/').filter(String::isNotBlank)
         entries[rootKey] = LocalFolderEntry(rootKey, rootPath, rootParts.lastOrNull() ?: rootPath, 0)
         tracks.forEach trackLoop@{ track ->

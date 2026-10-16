@@ -77,6 +77,26 @@ class LocalMusicStoreTest {
     }
 
     @Test
+    fun `removing membership through a symbolic path alias finds the canonical file`() = runBlocking {
+        val root = Files.createDirectory(temp.resolve("alias-remove"))
+        val alias = temp.resolve("alias-remove-link")
+        try {
+            Files.createSymbolicLink(alias, root)
+        } catch (failure: Exception) {
+            org.junit.jupiter.api.Assumptions.assumeTrue(false, "Directory symbolic links are unavailable: ${failure.message}")
+        }
+        val song = root.resolve("song.mp3")
+        javaClass.getResourceAsStream("/audio-fixtures/synthetic-tone.mp3")!!.use { Files.copy(it, song) }
+        LocalMusicStore(temp.resolve("alias-remove.db")).use { store ->
+            DesktopMusicScanner(store).scan(listOf(root))
+
+            assertEquals(1, store.removePathMembership(root.toRealPath().toString(), alias.resolve(song.fileName)))
+            assertTrue(store.loadTracks().isEmpty())
+            assertTrue(Files.exists(song))
+        }
+    }
+
+    @Test
     fun `corrupt index is preserved and a fresh index can start`() {
         val database = temp.resolve("library.db")
         Files.writeString(database, "not a sqlite database")

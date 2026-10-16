@@ -44,19 +44,22 @@ data class LocalMusicUiState(
     val recoveryWarning: String? = null,
 ) {
     val visibleTracks: List<LocalTrack>
-        get() = tracks.asSequence()
+        get() {
+            val folder = folderFilter?.let { normalizedLibraryPath(Path.of(it)) }
+            return tracks.asSequence()
             .filter { searchFilter.isBlank() || it.title.contains(searchFilter.trim(), ignoreCase = true) }
             .filter { formatFilter.isBlank() || it.format.name.contains(formatFilter.trim(), ignoreCase = true) }
             .filter { artistFilter.isBlank() || it.artists.any { artist -> artist.contains(artistFilter.trim(), ignoreCase = true) } }
             .filter { albumFilter.isBlank() || it.album.contains(albumFilter.trim(), ignoreCase = true) }
             .filter { selectedAlbumTrackKeys == null || it.pathKey in selectedAlbumTrackKeys }
             .filter { track ->
-                val folder = folderFilter?.let(::normalizedLibraryPath) ?: return@filter true
+                val folder = folder ?: return@filter true
                 val path = normalizedLibraryPath(track.filePath)
                 path == folder || path.startsWith("$folder/")
             }
             .sortedWith(localTrackComparator(sortMode))
             .toList()
+        }
 }
 
 private fun localTrackComparator(mode: LocalMusicSortMode): Comparator<LocalTrack> =
@@ -331,14 +334,14 @@ class LocalMusicViewModel(
                         pendingBatch += next
                     }
                     val batch = pendingBatch.distinctBy {
-                        "${normalizedLibraryPath(it.root.toString())}|${normalizedLibraryPath(it.path.toString())}|${it.kind}"
+                        "${normalizedLibraryPath(it.root)}|${normalizedLibraryPath(it.path)}|${it.kind}"
                     }
                     if (batch.isEmpty()) break
                     val result = libraryMutationMutex.withLock {
                         val watchedRoots = store.loadRoots().filter(LocalMusicRoot::autoWatch)
-                            .mapTo(mutableSetOf()) { normalizedLibraryPath(it.path) }
+                            .mapTo(mutableSetOf()) { normalizedLibraryPath(Path.of(it.path)) }
                         val activeBatch = batch.filter { change ->
-                            normalizedLibraryPath(change.root.toString()) in watchedRoots
+                            normalizedLibraryPath(change.root) in watchedRoots
                         }
                         if (activeBatch.isEmpty()) null else scanner.applyChanges(activeBatch)
                     } ?: continue

@@ -1,5 +1,6 @@
 package com.qing.hachimi.desktop
 
+import java.nio.file.Path
 import java.util.Locale
 
 enum class LocalAudioFormat {
@@ -41,6 +42,19 @@ internal fun normalizedLibraryPath(path: String): String {
     val collapsed = slashed.removePrefix(uncPrefix).replace(Regex("/+"), "/")
     return (uncPrefix + collapsed).trimEnd('/').lowercase(Locale.ROOT)
 }
+
+/** Resolves filesystem aliases such as Windows 8.3 short names before lexical normalization. */
+internal fun canonicalLibraryPath(path: Path): Path {
+    val absolute = path.toAbsolutePath().normalize()
+    return runCatching { absolute.toRealPath() }.getOrElse {
+        val parent = absolute.parent ?: return absolute
+        val canonicalParent = runCatching { parent.toRealPath() }.getOrNull()
+            ?: return absolute
+        canonicalParent.resolve(absolute.fileName).normalize()
+    }
+}
+
+internal fun normalizedLibraryPath(path: Path): String = normalizedLibraryPath(canonicalLibraryPath(path).toString())
 
 enum class LocalScanErrorKind {
     INVALID_ROOT,

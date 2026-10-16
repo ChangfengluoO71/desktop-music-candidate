@@ -247,7 +247,7 @@ class LocalMusicDirectoryWatcher(
     private class PendingChange(val change: LocalMusicChange) { var future: ScheduledFuture<*>? = null }
 
     private companion object {
-        fun pathIdentity(path: Path): String = normalizedLibraryPath(path.toAbsolutePath().normalize().toString())
+        fun pathIdentity(path: Path): String = normalizedLibraryPath(path)
 
         fun mergeChangeKinds(previous: LocalMusicChangeKind, next: LocalMusicChangeKind): LocalMusicChangeKind? = when {
             next == LocalMusicChangeKind.RESCAN_ROOT || previous == LocalMusicChangeKind.RESCAN_ROOT -> LocalMusicChangeKind.RESCAN_ROOT

@@ -129,7 +129,7 @@ class LocalMusicStore(private val databasePath: Path) : AutoCloseable {
 
     /** Removes a deleted file or subtree from one root; shared tracks survive other root memberships. */
     fun removePathMembership(rootPath: String, path: Path): Int = synchronized(monitor) {
-        val target = normalizedLibraryPath(path.toAbsolutePath().normalize().toString())
+        val target = normalizedLibraryPath(path)
         var removedCount = 0
         transaction {
             val matchingKeys = connection.prepareStatement(
@@ -139,7 +139,13 @@ class LocalMusicStore(private val databasePath: Path) : AutoCloseable {
                 statement.executeQuery().use { result ->
                     buildList {
                         while (result.next()) {
-                            val filePath = normalizedLibraryPath(result.getString("file_path"))
+                            val storedPath = result.getString("file_path")
+                            val lexicalPath = normalizedLibraryPath(storedPath)
+                            val filePath = if (lexicalPath == target || lexicalPath.startsWith("$target/")) {
+                                lexicalPath
+                            } else {
+                                normalizedLibraryPath(Path.of(storedPath))
+                            }
                             if (filePath == target || filePath.startsWith("$target/")) add(result.getString("path_key"))
                         }
                     }

@@ -201,6 +201,29 @@ class DesktopMusicScannerTest {
     }
 
     @Test
+    fun `apply changes accepts a symbolic path alias for a registered root`() = runBlocking {
+        val root = Files.createDirectory(temp.resolve("canonical-root"))
+        val alias = temp.resolve("canonical-root-alias")
+        try {
+            Files.createSymbolicLink(alias, root)
+        } catch (failure: Exception) {
+            assumeTrue(false, "Directory symbolic links are unavailable: ${failure.message}")
+        }
+        val song = Files.write(root.resolve("song.mp3"), byteArrayOf(1, 2, 3))
+        LocalMusicStore(temp.resolve("canonical-root.db")).use { store ->
+            val scanner = DesktopMusicScanner(store, EmptyMetadataReader, stabilitySampleMillis = 0)
+            scanner.scan(listOf(root))
+
+            val result = scanner.applyChanges(
+                listOf(LocalMusicChange(alias, alias.resolve(song.fileName), LocalMusicChangeKind.MODIFIED)),
+            )
+
+            assertEquals(1, result.scannedFiles)
+            assertEquals(1, store.loadTracks().size)
+        }
+    }
+
+    @Test
     fun `stale watcher events do not recreate a removed root`() = runBlocking {
         val root = Files.createDirectory(temp.resolve("removed-watch-root"))
         val song = Files.write(root.resolve("song.mp3"), byteArrayOf(1, 2, 3))

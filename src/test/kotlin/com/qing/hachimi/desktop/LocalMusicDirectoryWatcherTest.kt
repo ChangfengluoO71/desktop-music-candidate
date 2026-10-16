@@ -98,7 +98,7 @@ class LocalMusicDirectoryWatcherTest {
             watcher.processWatchEvents(root, listOf(overflow), keyIsValid = true)
             val overflowEvent = awaitRescan(
                 changes,
-                "inputRoot=$root; realRoot=${root.toRealPath()}; inputKey=${normalizedLibraryPath(root.toString())}",
+                "stage=overflow; inputRoot=$root; realRoot=${root.toRealPath()}; inputKey=${normalizedLibraryPath(root.toString())}",
             )
             assertEquals(LocalMusicChangeKind.RESCAN_ROOT, overflowEvent.kind)
 
@@ -106,7 +106,7 @@ class LocalMusicDirectoryWatcherTest {
             watcher.processWatchEvents(root, emptyList(), keyIsValid = false)
             val invalidKeyEvent = awaitRescan(
                 changes,
-                "inputRoot=$root; realRoot=${root.toRealPath()}; inputKey=${normalizedLibraryPath(root.toString())}",
+                "stage=invalid-key; inputRoot=$root; realRoot=${root.toRealPath()}; inputKey=${normalizedLibraryPath(root.toString())}",
             )
             assertEquals(LocalMusicChangeKind.RESCAN_ROOT, invalidKeyEvent.kind)
         } finally {

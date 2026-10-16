@@ -127,8 +127,8 @@ class DesktopMusicScanner(
             val rootPath = Path.of(root).toRealPath()
             val canonical = runCatching { change.path.toRealPath(LinkOption.NOFOLLOW_LINKS) }
                 .getOrElse { change.path.toAbsolutePath().normalize() }
-            val rootKey = normalizedLibraryPath(rootPath.toString())
-            val fileKey = normalizedLibraryPath(canonical.toString())
+            val rootKey = normalizedLibraryPath(rootPath)
+            val fileKey = normalizedLibraryPath(canonical)
             if (fileKey == rootKey || !fileKey.startsWith("$rootKey/")) return@forEach
 
             val key = pathKey(canonical)
@@ -273,7 +273,7 @@ class DesktopMusicScanner(
         val audioExtension = path.extension().lowercase(Locale.ROOT)
         if (audioExtension !in PARSABLE_EXTENSIONS) {
             return LocalTrack(
-                id = trackId(key), pathKey = key, filePath = canonical.toString(), fileSize = size,
+                id = trackId(key), pathKey = key, filePath = canonicalLibraryPath(canonical).toString(), fileSize = size,
                 lastModifiedMillis = modified, format = format, codec = null, lossiness = AudioLossiness.UNKNOWN,
                 durationSeconds = null, bitrateKbps = null, sampleRateHz = null, bitDepth = null,
                 title = fallback.title, titleSource = fallback.titleSource, artists = fallback.artists,
@@ -297,7 +297,7 @@ class DesktopMusicScanner(
                 else -> LocalMetadataStatus.READABLE
             }
             LocalTrack(
-                id = trackId(key), pathKey = key, filePath = canonical.toString(), fileSize = size,
+                id = trackId(key), pathKey = key, filePath = canonicalLibraryPath(canonical).toString(), fileSize = size,
                 lastModifiedMillis = modified, format = format, codec = metadata.codec,
                 lossiness = metadata.lossiness, durationSeconds = metadata.durationSeconds,
                 bitrateKbps = metadata.bitrateKbps, sampleRateHz = metadata.sampleRateHz,
@@ -364,7 +364,7 @@ class DesktopMusicScanner(
         kind: LocalScanErrorKind,
         summary: String,
     ) = LocalTrack(
-        id = trackId(key), pathKey = key, filePath = path.toAbsolutePath().normalize().toString(),
+        id = trackId(key), pathKey = key, filePath = canonicalLibraryPath(path).toString(),
         fileSize = size, lastModifiedMillis = modified, format = format, codec = null,
         lossiness = AudioLossiness.UNKNOWN, durationSeconds = null, bitrateKbps = null,
         sampleRateHz = null, bitDepth = null, title = fallback.title, titleSource = fallback.titleSource,
@@ -432,7 +432,7 @@ class DesktopMusicScanner(
         )
     }
 
-    private fun rootIdentity(path: Path): String = normalizedLibraryPath(path.toAbsolutePath().normalize().toString())
+    private fun rootIdentity(path: Path): String = normalizedLibraryPath(path)
     private fun Path.extension(): String = fileName?.toString()?.substringAfterLast('.', "").orEmpty()
 
     private fun formatFor(path: Path): LocalAudioFormat = when (path.extension().lowercase(Locale.ROOT)) {
@@ -457,9 +457,7 @@ class DesktopMusicScanner(
         private val PARSABLE_EXTENSIONS = setOf("mp3", "flac", "wav", "m4a", "mp4")
         private val AUDIO_EXTENSIONS = PARSABLE_EXTENSIONS + setOf("aac", "ogg", "opus", "wma", "ape", "wv", "aiff")
 
-        internal fun pathKey(path: Path): String = path.toAbsolutePath().normalize().toString()
-            .replace('\\', '/')
-            .lowercase(Locale.ROOT)
+        internal fun pathKey(path: Path): String = normalizedLibraryPath(path)
 
         private fun trackId(pathKey: String): String = sha256(pathKey.toByteArray(Charsets.UTF_8))
 
