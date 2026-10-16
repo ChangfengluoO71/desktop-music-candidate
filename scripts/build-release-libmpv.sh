@@ -57,6 +57,35 @@ fetch_source harfbuzz \
     'A41AAE311E28701BFE954B15834FFB5C79E13D81E9B67F956FA78E557CB47A30' \
     'harfbuzz-12.2.0.tar.gz' "$mpv_root/subprojects/harfbuzz"
 
+fetch_build_input() {
+    local url="$1" sha256="$2" filename="$3"
+    curl --fail --location --retry 3 --output "$release_root/$filename" "$url"
+    printf '%s  %s\n' "$sha256" "$release_root/$filename" | sha256sum --check --status
+    printf '%s  %s\n' "$sha256" "$filename" >> "$release_root/source-inputs-SHA256SUMS.txt"
+}
+
+mkdir -p "$mpv_root/subprojects/packagecache"
+fetch_build_input \
+    'https://github.com/pnggroup/libpng/archive/v1.6.50.tar.gz' \
+    '71158E53CFDF2877BC99BCAB33641D78DF3F48E6E0DAAD030AFE9CB8C031AA46' \
+    'libpng-1.6.50.tar.gz'
+fetch_build_input \
+    'https://wrapdb.mesonbuild.com/v2/libpng_1.6.50-2/get_patch' \
+    'A9C9362BBC8BB422C864807A174977DEC3868CDFF8CA380E27BAB6EE1CAA22EA' \
+    'libpng_1.6.50-2_patch.zip'
+fetch_build_input \
+    'https://zlib.net/fossils/zlib-1.3.1.tar.gz' \
+    '9A93B2B7DFDAC77CEBA5A558A580E74667DD6FEDE4585B91EEFB60F03B72DF23' \
+    'zlib-1.3.1.tar.gz'
+fetch_build_input \
+    'https://wrapdb.mesonbuild.com/v2/zlib_1.3.1-2/get_patch' \
+    '9CACEA02E1119964BC51E92DD2359B14DF723A36CFE0DF1C78D55D9C9F2763AE' \
+    'zlib_1.3.1-2_patch.zip'
+cp "$release_root/libpng-1.6.50.tar.gz" "$mpv_root/subprojects/packagecache/libpng-1.6.50.tar.gz"
+cp "$release_root/libpng_1.6.50-2_patch.zip" "$mpv_root/subprojects/packagecache/libpng_1.6.50-2_patch.zip"
+cp "$release_root/zlib-1.3.1.tar.gz" "$mpv_root/subprojects/packagecache/zlib-1.3.1.tar.gz"
+cp "$release_root/zlib_1.3.1-2_patch.zip" "$mpv_root/subprojects/packagecache/zlib_1.3.1-2_patch.zip"
+
 cat > "$mpv_root/subprojects/ffmpeg.wrap" <<'EOF'
 [wrap-git]
 url = https://gitlab.freedesktop.org/gstreamer/meson-ports/ffmpeg.git
@@ -187,6 +216,8 @@ resolve_runtime_component() {
         libmpv-2.dll) printf '%s' 'mpv' ;;
         avcodec*.dll|avdevice*.dll|avfilter*.dll|avformat*.dll|avutil*.dll|swresample*.dll|swscale*.dll|libavcodec*.dll|libavdevice*.dll|libavfilter*.dll|libavformat*.dll|libavutil*.dll|libswresample*.dll|libswscale*.dll) printf '%s' 'FFmpeg' ;;
         libass*.dll) printf '%s' 'libass' ;;
+        libpng16*.dll) printf '%s' 'libpng' ;;
+        libz-1.dll) printf '%s' 'zlib' ;;
         libplacebo*.dll) printf '%s' 'libplacebo' ;;
         libfreetype*.dll) printf '%s' 'FreeType' ;;
         libfribidi*.dll) printf '%s' 'FriBidi' ;;
@@ -215,7 +246,7 @@ cat "$release_root"/native-imports/*.txt | sort -u > "$release_root/native-impor
 
 source_bundle_root="$work_root/corresponding-source"
 mkdir -p "$source_bundle_root/source" "$source_bundle_root/build-inputs"
-cp "$release_root/"*.tar.gz "$release_root/"*.src.tar.zst "$source_bundle_root/source/"
+cp "$release_root/"*.tar.gz "$release_root/"*.src.tar.zst "$release_root/"*.zip "$source_bundle_root/source/"
 cp "$release_root/source-inputs-SHA256SUMS.txt" "$source_bundle_root/source/SHA256SUMS.txt"
 cp "$repo_root/scripts/build-release-libmpv.sh" "$source_bundle_root/build-inputs/"
 cp "$release_root/toolchain-packages.txt" "$source_bundle_root/build-inputs/"
@@ -227,7 +258,7 @@ cat > "$source_bundle_root/BUILDING.md" <<'EOF'
 
 This source bundle contains the exact source archives used for the DMC Windows libmpv runtime, the matching MSYS2 Winpthreads source package, their SHA-256 list, and the pinned build script. It targets x86_64 Windows GNU and builds shared LGPL components so the installed DLLs can be replaced independently. Winpthreads is shipped as a separate DLL to keep its own runtime replaceable.
 
-Build prerequisites: MSYS2 UCRT64 with GCC/G++, Meson, Ninja, pkgconf, yasm, nasm, Python with Jinja2, Vulkan headers, Git, curl, and tar. Vulkan is disabled in the runtime; its headers are needed to compile libplacebo's no-Vulkan stubs and no Vulkan loader/runtime is shipped. The included script fetches the immutable source revisions listed in `source/SHA256SUMS.txt`, verifies their SHA-256 values, configures the shared libraries, and builds them. The matching Winpthreads source package and license are taken from the same MSYS2 package version recorded in `build-inputs/winpthreads-source-info.tsv`. Run it from an MSYS2 UCRT64 shell with `GITHUB_WORKSPACE` and `RUNNER_TEMP` set. The tested CI job records the exact toolchain package versions in its artifact metadata.
+Build prerequisites: MSYS2 UCRT64 with GCC/G++, Meson, Ninja, pkgconf, yasm, nasm, Python with Jinja2, Vulkan headers, Git, curl, and tar. Vulkan is disabled in the runtime; its headers are needed to compile libplacebo's no-Vulkan stubs and no Vulkan loader/runtime is shipped. The included source inputs and Meson WrapDB patches are checksum-verified; Meson uses the cached libpng/zlib source inputs rather than downloading them again. The included script fetches the immutable source revisions listed in `source/SHA256SUMS.txt`, configures the shared libraries, and builds them. The matching Winpthreads source package and license are taken from the same MSYS2 package version recorded in `build-inputs/winpthreads-source-info.tsv`. Run it from an MSYS2 UCRT64 shell with `GITHUB_WORKSPACE` and `RUNNER_TEMP` set. The tested CI job records the exact toolchain package versions in its artifact metadata.
 
 The runtime is configured with mpv `-Dgpl=false`, FFmpeg `gpl=disabled`, `version3=disabled`, and `nonfree=disabled`. The source archives preserve each upstream project's license and copyright notices.
 EOF
@@ -236,6 +267,8 @@ for spec in \
     'mpv:LGPL-2.1-or-later:0.41.0:41f6a645068483470267271e1d09966ca3b9f413:source/mpv-0.41.0.tar.gz' \
     'ffmpeg:LGPL-2.1-or-later:8.0.3:74d461d3ed8a9fdd956336fd2a6a77ebc1bb91a9:source/ffmpeg-meson-port-74d461d3.tar.gz' \
     'libass:ISC:0.17.5:4a05d8127f525943ebf45fdc6497c9e665947f0d:source/libass-0.17.5.tar.gz' \
+    'libpng:PNG Reference Library License version 2:1.6.50:v1.6.50:source/libpng-1.6.50.tar.gz' \
+    'zlib:zlib License:1.3.1:v1.3.1:source/zlib-1.3.1.tar.gz' \
     'libplacebo:LGPL-2.1-or-later:7.360.1:cee9b076f2c63104ccfd497fa79c39a867293ec4:source/libplacebo-7.360.1.tar.gz' \
     'freetype:FTL:2.14.1:526ec5c47b9ebccc4754c85ac0c0cdf7c85a5e9b:source/freetype-2.14.1.tar.gz' \
     'fribidi:LGPL-2.1-or-later:1.0.17:b93119f5fdc7ea47672cc304c1455ffa6dfe7536:source/fribidi-1.0.17.tar.gz' \
@@ -263,6 +296,8 @@ cp "$source_root/mpv/Copyright" "$release_root/licenses/libmpv/mpv-Copyright.txt
 cp "$source_root/mpv/subprojects/ffmpeg/COPYING.LGPLv2.1" "$release_root/licenses/libmpv/FFmpeg-LGPL-2.1.txt"
 cp "$source_root/mpv/subprojects/libplacebo/LICENSE" "$release_root/licenses/libmpv/libplacebo-LICENSE.txt"
 cp "$source_root/mpv/subprojects/libass/COPYING" "$release_root/licenses/libmpv/libass-COPYING.txt"
+cp "$source_root/mpv/subprojects/libpng-1.6.50/LICENSE" "$release_root/licenses/libmpv/libpng-LICENSE.txt"
+cp "$source_root/mpv/subprojects/zlib-1.3.1/LICENSE" "$release_root/licenses/libmpv/zlib-LICENSE.txt"
 cp "$source_root/mpv/subprojects/freetype2/LICENSE.TXT" "$release_root/licenses/libmpv/FreeType-LICENSE.txt"
 cp "$source_root/mpv/subprojects/fribidi/COPYING" "$release_root/licenses/libmpv/FriBidi-COPYING.txt"
 cp "$source_root/mpv/subprojects/harfbuzz/COPYING" "$release_root/licenses/libmpv/HarfBuzz-COPYING.txt"
@@ -278,6 +313,8 @@ This directory contains the native playback runtime's license texts. The exact c
 | mpv / libmpv | 0.41.0 | LGPL-2.1-or-later; built with GPL code disabled |
 | FFmpeg | 8.0.3 | LGPL-2.1-or-later; GPL, version 3, and nonfree code disabled |
 | libass | 0.17.5 | ISC |
+| libpng | 1.6.50 | PNG Reference Library License version 2 |
+| zlib | 1.3.1 | zlib License |
 | libplacebo | 7.360.1 | LGPL-2.1-or-later |
 | FreeType | 2.14.1 | FreeType License (FTL) |
 | FriBidi | 1.0.17 | LGPL-2.1-or-later |
@@ -303,10 +340,16 @@ source_details = {
     "mpv-0.41.0.tar.gz": {"name": "mpv", "version": "0.41.0", "commit": "41f6a645068483470267271e1d09966ca3b9f413", "license": "LGPL-2.1-or-later", "sourceUrl": "https://github.com/mpv-player/mpv/archive/41f6a645068483470267271e1d09966ca3b9f413.tar.gz"},
     "ffmpeg-meson-port-74d461d3.tar.gz": {"name": "FFmpeg", "version": "8.0.3", "commit": "74d461d3ed8a9fdd956336fd2a6a77ebc1bb91a9", "upstreamCommit": "8ae0b34901ba60a802f183ee75a250a9fc3e09a5", "license": "LGPL-2.1-or-later", "sourceUrl": "https://gitlab.freedesktop.org/gstreamer/meson-ports/ffmpeg/-/archive/74d461d3ed8a9fdd956336fd2a6a77ebc1bb91a9/ffmpeg-74d461d3ed8a9fdd956336fd2a6a77ebc1bb91a9.tar.gz"},
     "libass-0.17.5.tar.gz": {"name": "libass", "version": "0.17.5", "commit": "4a05d8127f525943ebf45fdc6497c9e665947f0d", "license": "ISC", "sourceUrl": "https://github.com/libass/libass/archive/4a05d8127f525943ebf45fdc6497c9e665947f0d.tar.gz"},
+    "libpng-1.6.50.tar.gz": {"name": "libpng", "version": "1.6.50", "commit": "v1.6.50", "license": "PNG Reference Library License version 2", "sourceUrl": "https://github.com/pnggroup/libpng/archive/v1.6.50.tar.gz"},
+    "zlib-1.3.1.tar.gz": {"name": "zlib", "version": "1.3.1", "commit": "v1.3.1", "license": "zlib License", "sourceUrl": "https://zlib.net/fossils/zlib-1.3.1.tar.gz"},
     "libplacebo-7.360.1.tar.gz": {"name": "libplacebo", "version": "7.360.1", "commit": "cee9b076f2c63104ccfd497fa79c39a867293ec4", "license": "LGPL-2.1-or-later", "sourceUrl": "https://code.videolan.org/videolan/libplacebo/-/archive/cee9b076f2c63104ccfd497fa79c39a867293ec4/libplacebo-cee9b076f2c63104ccfd497fa79c39a867293ec4.tar.gz"},
     "freetype-2.14.1.tar.gz": {"name": "FreeType", "version": "2.14.1", "commit": "526ec5c47b9ebccc4754c85ac0c0cdf7c85a5e9b", "license": "FTL", "sourceUrl": "https://github.com/freetype/freetype/archive/526ec5c47b9ebccc4754c85ac0c0cdf7c85a5e9b.tar.gz"},
     "fribidi-1.0.17.tar.gz": {"name": "FriBidi", "version": "1.0.17", "commit": "b93119f5fdc7ea47672cc304c1455ffa6dfe7536", "license": "LGPL-2.1-or-later", "sourceUrl": "https://github.com/fribidi/fribidi/archive/b93119f5fdc7ea47672cc304c1455ffa6dfe7536.tar.gz"},
     "harfbuzz-12.2.0.tar.gz": {"name": "HarfBuzz", "version": "12.2.0", "commit": "0426759f2b03e479495e987608f10e0866e70180", "license": "MIT", "sourceUrl": "https://github.com/harfbuzz/harfbuzz/archive/0426759f2b03e479495e987608f10e0866e70180.tar.gz"},
+}
+build_input_details = {
+    "libpng_1.6.50-2_patch.zip": {"name": "libpng Meson WrapDB patch", "version": "1.6.50-2", "commit": "libpng_1.6.50-2", "sourceUrl": "https://wrapdb.mesonbuild.com/v2/libpng_1.6.50-2/get_patch"},
+    "zlib_1.3.1-2_patch.zip": {"name": "zlib Meson WrapDB patch", "version": "1.3.1-2", "commit": "zlib_1.3.1-2", "sourceUrl": "https://wrapdb.mesonbuild.com/v2/zlib_1.3.1-2/get_patch"},
 }
 winpthread_name, winpthread_version, winpthread_license, winpthread_revision, winpthread_source_url = (root / "winpthreads-source-info.tsv").read_text(encoding="utf-8").strip().split("\t")
 winpthread_archive = f"mingw-w64-winpthreads-{winpthread_version}.src.tar.zst"
@@ -319,7 +362,9 @@ source_details[winpthread_archive] = {
 }
 for line in (root / "source-inputs-SHA256SUMS.txt").read_text(encoding="utf-8").splitlines():
     digest, name = line.split(maxsplit=1)
-    detail = source_details[name]
+    detail = source_details.get(name, build_input_details.get(name))
+    if detail is None:
+        raise SystemExit(f"No provenance metadata exists for source input {name}.")
     components.append({**detail, "archive": name, "sha256": digest.upper()})
 component_map = {}
 for line in (root / "runtime-components.tsv").read_text(encoding="utf-8").splitlines():

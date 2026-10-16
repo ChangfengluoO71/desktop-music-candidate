@@ -84,13 +84,15 @@ if ($unresolvedImports.Count -gt 0) {
     throw "Native DLL import closure is incomplete: $($unresolvedImports -join ', ')"
 }
 
-if (@($manifest.licenseComponents).Count -ne 8) {
+if (@($manifest.licenseComponents).Count -ne 10) {
     throw 'The runtime manifest does not enumerate every included native component and license.'
 }
 $expectedComponentLicenses = @{
     'mpv' = 'LGPL-2.1-or-later'
     'FFmpeg' = 'LGPL-2.1-or-later'
     'libass' = 'ISC'
+    'libpng' = 'PNG Reference Library License version 2'
+    'zlib' = 'zlib License'
     'libplacebo' = 'LGPL-2.1-or-later'
     'FreeType' = 'FTL'
     'FriBidi' = 'LGPL-2.1-or-later'
@@ -103,8 +105,8 @@ foreach ($requiredComponent in $expectedComponentLicenses.Keys) {
         throw "The runtime manifest is missing license metadata for $requiredComponent."
     }
 }
-if (@($manifest.sourceInputs).Count -ne 8) {
-    throw 'The runtime manifest does not enumerate all seven pinned native source archives and the matching Winpthreads source package.'
+if (@($manifest.sourceInputs).Count -ne 12) {
+    throw 'The runtime manifest does not enumerate all runtime source archives, Meson build patches, and the matching Winpthreads source package.'
 }
 foreach ($sourceInput in $manifest.sourceInputs) {
     if ([string]::IsNullOrWhiteSpace($sourceInput.commit) -or [string]::IsNullOrWhiteSpace($sourceInput.sha256) -or $sourceInput.sourceUrl -notmatch '^https://') {
@@ -131,8 +133,10 @@ if (-not ($runtimeFiles | Where-Object { $_.file -ieq 'libwinpthread-1.dll' -and
 if (-not (Test-Path -LiteralPath (Join-Path $root 'licenses\libmpv\winpthreads-COPYING.txt') -PathType Leaf) -or -not (Test-Path -LiteralPath (Join-Path $root 'licenses\libmpv\GCC-COPYING.RUNTIME.txt') -PathType Leaf)) {
     throw 'The release payload is missing the Winpthreads or GCC runtime license text.'
 }
-if (-not (Test-Path -LiteralPath (Join-Path $root 'licenses\libmpv\Vulkan-Headers-LICENSE.txt') -PathType Leaf)) {
-    throw 'The release payload is missing the build-time Vulkan-Headers Apache-2.0 notice.'
+foreach ($requiredNativeLicense in @('Vulkan-Headers-LICENSE.txt', 'libpng-LICENSE.txt', 'zlib-LICENSE.txt')) {
+    if (-not (Test-Path -LiteralPath (Join-Path $root "licenses\libmpv\$requiredNativeLicense") -PathType Leaf)) {
+        throw "The release payload is missing a native runtime license notice: $requiredNativeLicense"
+    }
 }
 if ($env:GITHUB_SHA -and $manifest.build.sourceCommit -ne $env:GITHUB_SHA) {
     throw 'The native runtime source commit differs from the application source commit.'

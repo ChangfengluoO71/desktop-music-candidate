@@ -13,6 +13,8 @@ The exact build output is recorded in `libmpv/runtime-manifest.json` inside the 
 | mpv/libmpv | 0.41.0 | `41f6a645068483470267271e1d09966ca3b9f413` | LGPL-2.1-or-later when built without GPL-only files |
 | FFmpeg | 8.0.3 | upstream `n8.0.3`: `8ae0b34901ba60a802f183ee75a250a9fc3e09a5`; Meson port: `74d461d3ed8a9fdd956336fd2a6a77ebc1bb91a9` | LGPL-2.1-or-later; `gpl`, `version3`, and `nonfree` disabled |
 | libass | 0.17.5 | `4a05d8127f525943ebf45fdc6497c9e665947f0d` | ISC |
+| libpng | 1.6.50 | `v1.6.50`, archive SHA-256 recorded in the runtime manifest | PNG Reference Library License version 2 |
+| zlib | 1.3.1 | `v1.3.1`, archive SHA-256 recorded in the runtime manifest | zlib License |
 | libplacebo | 7.360.1 | `cee9b076f2c63104ccfd497fa79c39a867293ec4` | LGPL-2.1-or-later |
 | FreeType | 2.14.1 | `526ec5c47b9ebccc4754c85ac0c0cdf7c85a5e9b` | FreeType License (FTL) |
 | FriBidi | 1.0.17 | `b93119f5fdc7ea47672cc304c1455ffa6dfe7536` | LGPL-2.1-or-later |
@@ -20,7 +22,7 @@ The exact build output is recorded in `libmpv/runtime-manifest.json` inside the 
 | Winpthreads | MSYS2 package version recorded in the runtime manifest | Matching MSYS2 source package recorded in the source bundle | MIT and BSD-3-Clause |
 | Vulkan-Headers | MSYS2 package version recorded in `toolchain-packages.txt` | Build-time headers only; Vulkan support remains disabled and no Vulkan loader/runtime is shipped | Apache-2.0 |
 
-`build-release-libmpv.sh` records the downloaded source archive checksums, Windows import names, and MSYS2 package versions. The corresponding-source archive includes the exact input archives, the matching MSYS2 Winpthreads source package, and the build script. The runtime keeps Winpthreads as a separate DLL; the Windows smoke check requires it in the import closure and installer. GCC runtime helpers are static and built with the GCC Runtime Library Exception; the matching exception text is included in the installer. This is provenance for the actual candidate; it does not claim a bit-for-bit reproducible build on an unspecified host.
+`build-release-libmpv.sh` records the downloaded source archive checksums, Meson WrapDB patches, Windows import names, and MSYS2 package versions. The corresponding-source archive includes the exact input archives and build patches, the matching MSYS2 Winpthreads source package, and the build script. The runtime keeps Winpthreads as a separate DLL; the Windows smoke check requires it in the import closure and installer. GCC runtime helpers are static and built with the GCC Runtime Library Exception; the matching exception text is included in the installer. This is provenance for the actual candidate; it does not claim a bit-for-bit reproducible build on an unspecified host.
 
 ## Build configuration and limits
 
@@ -44,5 +46,7 @@ Jaudiotagger is independently replaceable at `{app}\app\jaudiotagger-3.0.1.jar`;
 - [FFmpeg 8.0.3 release and source archives](https://ffmpeg.org/download.html)
 - [MSYS2 Winpthreads package, license IDs, source package and installed COPYING path](https://packages.msys2.org/packages/mingw-w64-ucrt-x86_64-libwinpthread)
 - [MSYS2 Vulkan-Headers package and Apache-2.0 license](https://packages.msys2.org/packages/mingw-w64-ucrt-x86_64-vulkan-headers)
+- [libpng 1.6.50 license text](https://raw.githubusercontent.com/pnggroup/libpng/v1.6.50/LICENSE)
+- [zlib 1.3.1 license text](https://raw.githubusercontent.com/madler/zlib/v1.3.1/LICENSE)
 - [GCC libstdc++ license and Runtime Library Exception 3.1](https://gcc.gnu.org/onlinedocs/libstdc++/manual/license.html)
 - [LGPL 2.1 text included by DMC](../../LICENSES/LGPL-2.1.txt)
