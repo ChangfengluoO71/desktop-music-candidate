@@ -186,6 +186,48 @@ if [[ -n "$compiler_runtime_dlls" ]]; then
     echo 'A GCC compiler runtime DLL was linked dynamically; release build must keep compiler runtimes static.' >&2
     exit 1
 fi
+
+fetch_msys2_runtime_dependency() {
+    local component="$1" package="$2" expected_version="$3" source_base="$4" expected_source_sha256="$5" license_id="$6" dll_name="$7" license_path="$8" notice_name="$9"
+    local installed_version source_archive source_url fallback_url
+    installed_version="$(pacman -Q "$package" | awk '{print $2}')"
+    if [[ "$installed_version" != "$expected_version" ]]; then
+        echo "Unreviewed MSYS2 $component package version: expected $expected_version, got $installed_version." >&2
+        exit 1
+    fi
+    source_archive="${source_base}-${installed_version}.src.tar.zst"
+    source_url="https://mirror.msys2.org/mingw/sources/${source_archive}"
+    fallback_url="https://repo.msys2.org/mingw/sources/${source_archive}"
+    if ! curl --fail --location --retry 3 --output "$release_root/$source_archive" "$source_url"; then
+        source_url="$fallback_url"
+        curl --fail --location --retry 3 --output "$release_root/$source_archive" "$source_url"
+    fi
+    test -s "$release_root/$source_archive"
+    printf '%s  %s\n' "$expected_source_sha256" "$release_root/$source_archive" | sha256sum --check
+    printf '%s  %s\n' "$expected_source_sha256" "$source_archive" >> "$release_root/source-inputs-SHA256SUMS.txt"
+    cp "$MINGW_PREFIX/bin/$dll_name" "$release_root/runtime/"
+    cp "$MINGW_PREFIX/$license_path" "$release_root/licenses/libmpv/$notice_name"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+        "$component" "$installed_version" "$license_id" "$installed_version" "$source_url" "$source_archive" \
+        >> "$release_root/msys2-runtime-source-info.tsv"
+}
+
+: > "$release_root/msys2-runtime-source-info.tsv"
+fetch_msys2_runtime_dependency \
+    'libiconv' 'mingw-w64-ucrt-x86_64-libiconv' '1.19-1' 'mingw-w64-libiconv' \
+    '74428280C17094DA5B702C29B2E1A0ABAE59556EA5DFDD65705CC8CCC1E000FB' \
+    'LGPL-2.1-or-later' 'libiconv-2.dll' 'share/licenses/libiconv/COPYING.LIB' 'libiconv-COPYING.LIB.txt'
+fetch_msys2_runtime_dependency \
+    'liblzma' 'mingw-w64-ucrt-x86_64-xz' '5.8.4-1' 'mingw-w64-xz' \
+    'B8ACBC56B2BFE08DF7BFFFF423F3BF07EE85DBEC4E07416017AB04C8AFB9D13E' \
+    '0BSD' 'liblzma-5.dll' 'share/licenses/xz/COPYING.0BSD' 'liblzma-COPYING.0BSD.txt'
+cp "$MINGW_PREFIX/share/licenses/libiconv/COPYING" "$release_root/licenses/libmpv/libiconv-COPYING.txt"
+cp "$MINGW_PREFIX/share/licenses/libiconv/libcharset/COPYING.LIB" "$release_root/licenses/libmpv/libcharset-COPYING.LIB.txt"
+cp "$MINGW_PREFIX/share/licenses/xz/COPYING" "$release_root/licenses/libmpv/XZ-COPYING.txt"
+cp "$MINGW_PREFIX/share/licenses/xz/COPYING.GPLv2" "$release_root/licenses/libmpv/XZ-COPYING.GPLv2.txt"
+cp "$MINGW_PREFIX/share/licenses/xz/COPYING.GPLv3" "$release_root/licenses/libmpv/XZ-COPYING.GPLv3.txt"
+cp "$MINGW_PREFIX/share/licenses/xz/COPYING.LGPLv2.1" "$release_root/licenses/libmpv/XZ-COPYING.LGPLv2.1.txt"
+
 winpthread_package='mingw-w64-ucrt-x86_64-libwinpthread'
 winpthread_version="$(pacman -Q "$winpthread_package" | awk '{print $2}')"
 winpthread_source="mingw-w64-winpthreads-${winpthread_version}.src.tar.zst"
@@ -222,6 +264,8 @@ resolve_runtime_component() {
         libfreetype*.dll) printf '%s' 'FreeType' ;;
         libfribidi*.dll) printf '%s' 'FriBidi' ;;
         libharfbuzz*.dll) printf '%s' 'HarfBuzz' ;;
+        libiconv-2.dll) printf '%s' 'libiconv' ;;
+        liblzma-5.dll) printf '%s' 'liblzma' ;;
         libwinpthread-1.dll) printf '%s' 'Winpthreads' ;;
         *) return 1 ;;
     esac
@@ -253,14 +297,15 @@ cp "$release_root/toolchain-packages.txt" "$source_bundle_root/build-inputs/"
 cp "$release_root/native-imports.txt" "$source_bundle_root/build-inputs/"
 cp "$release_root/runtime-components.tsv" "$source_bundle_root/build-inputs/"
 cp "$release_root/winpthreads-source-info.tsv" "$source_bundle_root/build-inputs/"
+cp "$release_root/msys2-runtime-source-info.tsv" "$source_bundle_root/build-inputs/"
 cat > "$source_bundle_root/BUILDING.md" <<'EOF'
 # DMC libmpv corresponding source
 
-This source bundle contains the exact source archives used for the DMC Windows libmpv runtime, the matching MSYS2 Winpthreads source package, their SHA-256 list, and the pinned build script. It targets x86_64 Windows GNU and builds shared LGPL components so the installed DLLs can be replaced independently. Winpthreads is shipped as a separate DLL to keep its own runtime replaceable.
+This source bundle contains the exact source archives used for the DMC Windows libmpv runtime, the matching MSYS2 Winpthreads and runtime dependency source packages, their SHA-256 list, and the pinned build script. It targets x86_64 Windows GNU and builds shared LGPL components so the installed DLLs can be replaced independently. Winpthreads, libiconv, and liblzma are shipped as separate DLLs to keep their runtime components replaceable.
 
-Build prerequisites: MSYS2 UCRT64 with GCC/G++, Meson, Ninja, pkgconf, yasm, nasm, Python with Jinja2, Vulkan headers, Git, curl, and tar. Vulkan is disabled in the runtime; its headers are needed to compile libplacebo's no-Vulkan stubs and no Vulkan loader/runtime is shipped. The included source inputs and Meson WrapDB patches are checksum-verified; Meson uses the cached libpng/zlib source inputs rather than downloading them again. The included script fetches the immutable source revisions listed in `source/SHA256SUMS.txt`, configures the shared libraries, and builds them. The matching Winpthreads source package and license are taken from the same MSYS2 package version recorded in `build-inputs/winpthreads-source-info.tsv`. Run it from an MSYS2 UCRT64 shell with `GITHUB_WORKSPACE` and `RUNNER_TEMP` set. The tested CI job records the exact toolchain package versions in its artifact metadata.
+Build prerequisites: MSYS2 UCRT64 with GCC/G++, Meson, Ninja, pkgconf, yasm, nasm, Python with Jinja2, Vulkan headers, Git, curl, and tar. Vulkan is disabled in the runtime; its headers are needed to compile libplacebo's no-Vulkan stubs and no Vulkan loader/runtime is shipped. The included source inputs and Meson WrapDB patches are checksum-verified; Meson uses the cached libpng/zlib source inputs rather than downloading them again. The included script fetches the immutable source revisions listed in `source/SHA256SUMS.txt`, configures the shared libraries, and builds them. Winpthreads, libiconv, and liblzma DLLs are taken from the matching MSYS2 package versions recorded in `build-inputs/*source-info.tsv`; their source-only packages include upstream sources and package recipes. To rebuild those three DLLs, use the included source packages and the exact package versions listed in `build-inputs/toolchain-packages.txt`. Run the libmpv script from an MSYS2 UCRT64 shell with `GITHUB_WORKSPACE` and `RUNNER_TEMP` set. The tested CI job records the exact toolchain package versions in its artifact metadata.
 
-The runtime is configured with mpv `-Dgpl=false`, FFmpeg `gpl=disabled`, `version3=disabled`, and `nonfree=disabled`. The source archives preserve each upstream project's license and copyright notices.
+The runtime is configured with mpv `-Dgpl=false`, FFmpeg `gpl=disabled`, `version3=disabled`, and `nonfree=disabled`. The matching MSYS2 package source archives and license IDs for Winpthreads, libiconv, and liblzma are recorded in `build-inputs/*source-info.tsv`. The libiconv DLL uses its LGPL library license; the liblzma DLL uses XZ Utils' 0BSD core license. The source archives preserve each upstream project's license and copyright notices.
 EOF
 
 for spec in \
@@ -290,6 +335,12 @@ winpthread_archive_hash="$(sha256sum "$source_bundle_root/$winpthread_archive" |
 printf '%s\t%s\t%s\t%s\t%s\n' \
     "$winpthread_name" "$winpthread_version" "$winpthread_license" "$winpthread_revision" "$winpthread_archive_hash" \
     >> "$source_bundle_root/source-components.tsv"
+while IFS=$'\t' read -r component version license revision source_url archive; do
+    archive_hash="$(sha256sum "$source_bundle_root/source/$archive" | cut -d ' ' -f1)"
+    printf '%s\t%s\t%s\t%s\t%s\n' \
+        "$component" "$version" "$license" "$revision" "$archive_hash" \
+        >> "$source_bundle_root/source-components.tsv"
+done < "$release_root/msys2-runtime-source-info.tsv"
 
 tar -czf "$release_root/libmpv-corresponding-source.tar.gz" -C "$source_bundle_root" .
 cp "$source_root/mpv/Copyright" "$release_root/licenses/libmpv/mpv-Copyright.txt"
@@ -319,6 +370,8 @@ This directory contains the native playback runtime's license texts. The exact c
 | FreeType | 2.14.1 | FreeType License (FTL) |
 | FriBidi | 1.0.17 | LGPL-2.1-or-later |
 | HarfBuzz | 12.2.0 | MIT |
+| libiconv | 1.19-1 | LGPL-2.1-or-later (library DLL) |
+| liblzma | 5.8.4-1 | 0BSD (liblzma DLL; command-line tools are not shipped) |
 | Winpthreads | See `runtime-manifest.json` | MIT and BSD-3-Clause |
 | GCC runtime helpers | See `toolchain-packages.txt` | GCC Runtime Library Exception 3.1 |
 | Vulkan-Headers | See `toolchain-packages.txt` | Apache-2.0; build-time headers only, Vulkan support disabled and no Vulkan runtime shipped |
@@ -347,6 +400,15 @@ source_details = {
     "fribidi-1.0.17.tar.gz": {"name": "FriBidi", "version": "1.0.17", "commit": "b93119f5fdc7ea47672cc304c1455ffa6dfe7536", "license": "LGPL-2.1-or-later", "sourceUrl": "https://github.com/fribidi/fribidi/archive/b93119f5fdc7ea47672cc304c1455ffa6dfe7536.tar.gz"},
     "harfbuzz-12.2.0.tar.gz": {"name": "HarfBuzz", "version": "12.2.0", "commit": "0426759f2b03e479495e987608f10e0866e70180", "license": "MIT", "sourceUrl": "https://github.com/harfbuzz/harfbuzz/archive/0426759f2b03e479495e987608f10e0866e70180.tar.gz"},
 }
+for line in (root / "msys2-runtime-source-info.tsv").read_text(encoding="utf-8").splitlines():
+    name, version, license, revision, source_url, archive = line.split("\t")
+    source_details[archive] = {
+        "name": name,
+        "version": version,
+        "commit": revision,
+        "license": license,
+        "sourceUrl": source_url,
+    }
 build_input_details = {
     "libpng_1.6.50-2_patch.zip": {"name": "libpng Meson WrapDB patch", "version": "1.6.50-2", "commit": "libpng_1.6.50-2", "sourceUrl": "https://wrapdb.mesonbuild.com/v2/libpng_1.6.50-2/get_patch"},
     "zlib_1.3.1-2_patch.zip": {"name": "zlib Meson WrapDB patch", "version": "1.3.1-2", "commit": "zlib_1.3.1-2", "sourceUrl": "https://wrapdb.mesonbuild.com/v2/zlib_1.3.1-2/get_patch"},

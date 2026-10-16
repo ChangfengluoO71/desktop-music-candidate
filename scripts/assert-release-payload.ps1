@@ -56,6 +56,19 @@ $runtimeFiles = @($manifest.runtimeFiles)
 if ($runtimeFiles.Count -lt 2 -or -not ($runtimeFiles | Where-Object { $_.file -ieq 'libmpv-2.dll' })) {
     throw 'The runtime manifest must list libmpv-2.dll and its adjacent native dependencies.'
 }
+$requiredRuntimeComponents = @{
+    'libiconv-2.dll' = 'libiconv'
+    'liblzma-5.dll' = 'liblzma'
+}
+foreach ($requiredRuntimeName in $requiredRuntimeComponents.Keys) {
+    $requiredRuntime = @($runtimeFiles | Where-Object { $_.file -ieq $requiredRuntimeName -and $_.component -ceq $requiredRuntimeComponents[$requiredRuntimeName] }) | Select-Object -First 1
+    if (-not $requiredRuntime) {
+        throw "The runtime manifest is missing the audited dependency $requiredRuntimeName ($($requiredRuntimeComponents[$requiredRuntimeName]))."
+    }
+    if ($manifest.nativeImports -notcontains $requiredRuntimeName) {
+        throw "The runtime import inventory does not confirm the required dependency $requiredRuntimeName."
+    }
+}
 foreach ($runtimeFile in $runtimeFiles) {
     if ([System.IO.Path]::GetFileName($runtimeFile.file) -ne $runtimeFile.file) {
         throw "Runtime manifest contains an invalid path: $($runtimeFile.file)"
@@ -84,7 +97,7 @@ if ($unresolvedImports.Count -gt 0) {
     throw "Native DLL import closure is incomplete: $($unresolvedImports -join ', ')"
 }
 
-if (@($manifest.licenseComponents).Count -ne 10) {
+if (@($manifest.licenseComponents).Count -ne 12) {
     throw 'The runtime manifest does not enumerate every included native component and license.'
 }
 $expectedComponentLicenses = @{
@@ -98,6 +111,8 @@ $expectedComponentLicenses = @{
     'FriBidi' = 'LGPL-2.1-or-later'
     'HarfBuzz' = 'MIT'
     'Winpthreads' = 'MIT AND BSD-3-Clause'
+    'libiconv' = 'LGPL-2.1-or-later'
+    'liblzma' = '0BSD'
 }
 foreach ($requiredComponent in $expectedComponentLicenses.Keys) {
     $component = @($manifest.licenseComponents | Where-Object { $_.name -ceq $requiredComponent }) | Select-Object -First 1
@@ -105,12 +120,17 @@ foreach ($requiredComponent in $expectedComponentLicenses.Keys) {
         throw "The runtime manifest is missing license metadata for $requiredComponent."
     }
 }
-if (@($manifest.sourceInputs).Count -ne 12) {
-    throw 'The runtime manifest does not enumerate all runtime source archives, Meson build patches, and the matching Winpthreads source package.'
+if (@($manifest.sourceInputs).Count -ne 14) {
+    throw 'The runtime manifest does not enumerate all runtime source archives, Meson build patches, and matching MSYS2 source packages.'
 }
 foreach ($sourceInput in $manifest.sourceInputs) {
     if ([string]::IsNullOrWhiteSpace($sourceInput.commit) -or [string]::IsNullOrWhiteSpace($sourceInput.sha256) -or $sourceInput.sourceUrl -notmatch '^https://') {
         throw "A source archive is missing its immutable revision, checksum, or HTTPS URL: $($sourceInput.archive)"
+    }
+}
+foreach ($requiredSourceArchive in @('mingw-w64-libiconv-1.19-1.src.tar.zst', 'mingw-w64-xz-5.8.4-1.src.tar.zst')) {
+    if (-not (@($manifest.sourceInputs | Where-Object { $_.archive -ceq $requiredSourceArchive }).Count)) {
+        throw "The runtime manifest is missing the matching MSYS2 dependency source archive $requiredSourceArchive."
     }
 }
 foreach ($runtimeFile in $runtimeFiles) {
@@ -133,7 +153,12 @@ if (-not ($runtimeFiles | Where-Object { $_.file -ieq 'libwinpthread-1.dll' -and
 if (-not (Test-Path -LiteralPath (Join-Path $root 'licenses\libmpv\winpthreads-COPYING.txt') -PathType Leaf) -or -not (Test-Path -LiteralPath (Join-Path $root 'licenses\libmpv\GCC-COPYING.RUNTIME.txt') -PathType Leaf)) {
     throw 'The release payload is missing the Winpthreads or GCC runtime license text.'
 }
-foreach ($requiredNativeLicense in @('Vulkan-Headers-LICENSE.txt', 'libpng-LICENSE.txt', 'zlib-LICENSE.txt')) {
+foreach ($requiredNativeLicense in @(
+    'Vulkan-Headers-LICENSE.txt', 'libpng-LICENSE.txt', 'zlib-LICENSE.txt',
+    'libiconv-COPYING.txt', 'libiconv-COPYING.LIB.txt', 'libcharset-COPYING.LIB.txt',
+    'XZ-COPYING.txt', 'XZ-COPYING.0BSD.txt', 'XZ-COPYING.GPLv2.txt',
+    'XZ-COPYING.GPLv3.txt', 'XZ-COPYING.LGPLv2.1.txt'
+)) {
     if (-not (Test-Path -LiteralPath (Join-Path $root "licenses\libmpv\$requiredNativeLicense") -PathType Leaf)) {
         throw "The release payload is missing a native runtime license notice: $requiredNativeLicense"
     }
@@ -153,4 +178,4 @@ if ($sourceBundleHash -ne $manifest.sourceBundle.sha256.ToUpperInvariant()) {
     throw 'The corresponding libmpv source bundle does not match the runtime manifest.'
 }
 
-Write-Output 'Release payload passed: stable LGPL libmpv, dynamically replaceable Winpthreads, every adjacent DLL hash, corresponding source archives, license notices, and replaceable jaudiotagger source/JAR.'
+Write-Output 'Release payload passed: stable LGPL libmpv, dynamically replaceable native dependencies, every adjacent DLL hash, corresponding source archives, license notices, and replaceable jaudiotagger source/JAR.'

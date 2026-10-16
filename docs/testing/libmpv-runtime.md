@@ -19,10 +19,12 @@ The exact build output is recorded in `libmpv/runtime-manifest.json` inside the 
 | FreeType | 2.14.1 | `526ec5c47b9ebccc4754c85ac0c0cdf7c85a5e9b` | FreeType License (FTL) |
 | FriBidi | 1.0.17 | `b93119f5fdc7ea47672cc304c1455ffa6dfe7536` | LGPL-2.1-or-later |
 | HarfBuzz | 12.2.0 | `0426759f2b03e479495e987608f10e0866e70180` | MIT |
+| libiconv | 1.19-1 | Matching MSYS2 source package and SHA-256 recorded in the runtime manifest | LGPL-2.1-or-later for the shared library DLL |
+| liblzma | 5.8.4-1 | Matching MSYS2 source package and SHA-256 recorded in the runtime manifest | 0BSD for the liblzma core DLL; XZ command-line tools are not shipped |
 | Winpthreads | MSYS2 package version recorded in the runtime manifest | Matching MSYS2 source package recorded in the source bundle | MIT and BSD-3-Clause |
 | Vulkan-Headers | MSYS2 package version recorded in `toolchain-packages.txt` | Build-time headers only; Vulkan support remains disabled and no Vulkan loader/runtime is shipped | Apache-2.0 |
 
-`build-release-libmpv.sh` records the downloaded source archive checksums, Meson WrapDB patches, Windows import names, and MSYS2 package versions. The corresponding-source archive includes the exact input archives and build patches, the matching MSYS2 Winpthreads source package, and the build script. The runtime keeps Winpthreads as a separate DLL; the Windows smoke check requires it in the import closure and installer. GCC runtime helpers are static and built with the GCC Runtime Library Exception; the matching exception text is included in the installer. This is provenance for the actual candidate; it does not claim a bit-for-bit reproducible build on an unspecified host.
+`build-release-libmpv.sh` records the downloaded source archive checksums, Meson WrapDB patches, Windows import names, and MSYS2 package versions. The corresponding-source archive includes the exact input archives and build patches, matching MSYS2 Winpthreads/libiconv/XZ source packages, and the build script. The runtime keeps these dependency DLLs separate and replaceable; the Windows smoke check requires them in the import closure and installer. GCC runtime helpers are static and built with the GCC Runtime Library Exception; the matching exception text is included in the installer. This is provenance for the actual candidate; it does not claim a bit-for-bit reproducible build on an unspecified host.
 
 ## Build configuration and limits
 
@@ -45,6 +47,9 @@ Jaudiotagger is independently replaceable at `{app}\app\jaudiotagger-3.0.1.jar`;
 - [FFmpeg licensing and legal considerations](https://ffmpeg.org/legal.html)
 - [FFmpeg 8.0.3 release and source archives](https://ffmpeg.org/download.html)
 - [MSYS2 Winpthreads package, license IDs, source package and installed COPYING path](https://packages.msys2.org/packages/mingw-w64-ucrt-x86_64-libwinpthread)
+- [MSYS2 libiconv 1.19-1 package, LGPL license ID, source package, and installed library license](https://packages.msys2.org/packages/mingw-w64-ucrt-x86_64-libiconv)
+- [MSYS2 XZ 5.8.4-1 package, source package, and installed liblzma DLL](https://packages.msys2.org/packages/mingw-w64-ucrt-x86_64-xz)
+- [XZ Utils component licensing: core components use 0BSD from 5.5.2beta onward](https://tukaani.org/xz/)
 - [MSYS2 Vulkan-Headers package and Apache-2.0 license](https://packages.msys2.org/packages/mingw-w64-ucrt-x86_64-vulkan-headers)
 - [libpng 1.6.50 license text](https://raw.githubusercontent.com/pnggroup/libpng/v1.6.50/LICENSE)
 - [zlib 1.3.1 license text](https://raw.githubusercontent.com/madler/zlib/v1.3.1/LICENSE)
