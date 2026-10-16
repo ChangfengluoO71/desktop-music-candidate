@@ -55,11 +55,19 @@ class LocalMusicStoreTest {
         val nestedRoot = Files.createDirectory(root.resolve("nested"))
         val song = nestedRoot.resolve("song.mp3")
         javaClass.getResourceAsStream("/audio-fixtures/synthetic-tone.mp3")!!.use { Files.copy(it, song) }
-        LocalMusicStore(temp.resolve("overlap.db")).use { store ->
+        val database = temp.resolve("overlap.db")
+        LocalMusicStore(database).use { store ->
             DesktopMusicScanner(store).scan(listOf(root, nestedRoot))
             assertEquals(1, store.loadTracks().size)
 
-            assertEquals(1, store.removePathMembership(root.toRealPath().toString(), song))
+            assertEquals(
+                1,
+                store.removePathMembership(root.toRealPath().toString(), song),
+                "argumentRoot=${root.toRealPath()}; registeredRoots=${store.loadRoots().map { it.path }}; " +
+                    "trackPaths=${store.loadTracks().map { it.filePath }}; " +
+                    "rootTrackPaths=${readRootTrackPaths(database)}; target=$song; " +
+                    "normalizedTarget=${normalizedLibraryPath(song.toString())}",
+            )
             assertEquals(1, store.loadTracks().size)
 
             assertEquals(1, store.removePathMembership(nestedRoot.toRealPath().toString(), song))
@@ -114,4 +122,13 @@ class LocalMusicStoreTest {
             assertFalse(store.loadRoots().single().autoWatch)
         }
     }
+
+    private fun readRootTrackPaths(database: Path): List<String> =
+        DriverManager.getConnection("jdbc:sqlite:${database.toAbsolutePath()}").use { connection ->
+            connection.createStatement().use { statement ->
+                statement.executeQuery("SELECT root_path FROM root_tracks ORDER BY root_path").use { result ->
+                    buildList { while (result.next()) add(result.getString(1)) }
+                }
+            }
+        }
 }

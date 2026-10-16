@@ -177,8 +177,16 @@ class DesktopMusicScannerTest {
             assertEquals(2, reader.reads)
 
             Files.write(touched, byteArrayOf(1, 2, 3, 4))
-            scanner.applyChanges(listOf(LocalMusicChange(nested, touched, LocalMusicChangeKind.MODIFIED)))
-            assertEquals(3, reader.reads)
+            val change = LocalMusicChange(nested, touched, LocalMusicChangeKind.MODIFIED)
+            val result = scanner.applyChanges(listOf(change))
+            assertEquals(
+                3,
+                reader.reads,
+                "registeredRoots=${store.loadRoots().map { it.path to normalizedLibraryPath(it.path)}}; " +
+                    "eventRoot=${change.root}; eventRootReal=${change.root.toRealPath()}; " +
+                    "eventRootKey=${normalizedLibraryPath(change.root.toString())}; path=${change.path}; " +
+                    "retries=${result.retryChanges}; scanned=${result.scannedFiles}; failed=${result.failedFiles}",
+            )
             assertEquals(2, store.loadTracks().size)
 
             scanner.applyChanges(listOf(LocalMusicChange(root, touched, LocalMusicChangeKind.DELETED)))
@@ -234,7 +242,13 @@ class DesktopMusicScannerTest {
 
             val result = scanner.applyChanges(listOf(LocalMusicChange(root, song, LocalMusicChangeKind.MODIFIED)))
 
-            assertEquals(1, result.retryChanges.size)
+            assertEquals(
+                1,
+                result.retryChanges.size,
+                "registeredRoots=${store.loadRoots().map { it.path to normalizedLibraryPath(it.path)}}; " +
+                    "eventRoot=$root; eventRootReal=${root.toRealPath()}; " +
+                    "eventRootKey=${normalizedLibraryPath(root.toString())}; song=$song; result=$result",
+            )
             assertEquals(oldTrack, store.loadTracks().single())
         }
     }
@@ -250,8 +264,15 @@ class DesktopMusicScannerTest {
             val oldTrack = store.loadTracks().single()
 
             val created = Files.write(root.resolve("new.mp3"), byteArrayOf(9, 8))
-            scanner.applyChanges(listOf(LocalMusicChange(root, created, LocalMusicChangeKind.CREATED)))
-            assertEquals(setOf("song", "new"), store.loadTracks().map { it.title.substringBeforeLast('.') }.toSet())
+            val createChange = LocalMusicChange(root, created, LocalMusicChangeKind.CREATED)
+            val createResult = scanner.applyChanges(listOf(createChange))
+            assertEquals(
+                setOf("song", "new"),
+                store.loadTracks().map { it.title.substringBeforeLast('.') }.toSet(),
+                "registeredRoots=${store.loadRoots().map { it.path to normalizedLibraryPath(it.path)}}; " +
+                    "eventRoot=$root; eventRootReal=${root.toRealPath()}; path=$created; " +
+                    "key=${normalizedLibraryPath(created.toString())}; result=$createResult; tracks=${store.loadTracks()}",
+            )
 
             var writeCount = 0
             val unstableScanner = DesktopMusicScanner(

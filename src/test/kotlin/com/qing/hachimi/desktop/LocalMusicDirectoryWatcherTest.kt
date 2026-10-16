@@ -96,12 +96,18 @@ class LocalMusicDirectoryWatcherTest {
         try {
             watcher.start(listOf(root))
             watcher.processWatchEvents(root, listOf(overflow), keyIsValid = true)
-            val overflowEvent = awaitRescan(changes)
+            val overflowEvent = awaitRescan(
+                changes,
+                "inputRoot=$root; realRoot=${root.toRealPath()}; inputKey=${normalizedLibraryPath(root.toString())}",
+            )
             assertEquals(LocalMusicChangeKind.RESCAN_ROOT, overflowEvent.kind)
 
             changes.clear()
             watcher.processWatchEvents(root, emptyList(), keyIsValid = false)
-            val invalidKeyEvent = awaitRescan(changes)
+            val invalidKeyEvent = awaitRescan(
+                changes,
+                "inputRoot=$root; realRoot=${root.toRealPath()}; inputKey=${normalizedLibraryPath(root.toString())}",
+            )
             assertEquals(LocalMusicChangeKind.RESCAN_ROOT, invalidKeyEvent.kind)
         } finally {
             watcher.close()
@@ -128,11 +134,11 @@ class LocalMusicDirectoryWatcherTest {
         }
     }
 
-    private fun awaitRescan(changes: CopyOnWriteArrayList<LocalMusicChange>): LocalMusicChange {
+    private fun awaitRescan(changes: CopyOnWriteArrayList<LocalMusicChange>, diagnostic: String): LocalMusicChange {
         repeat(100) {
             changes.firstOrNull { it.kind == LocalMusicChangeKind.RESCAN_ROOT }?.let { return it }
             Thread.sleep(10)
         }
-        throw AssertionError("Expected a full-root rescan event")
+        throw AssertionError("Expected a full-root rescan event: $diagnostic; captured=$changes")
     }
 }

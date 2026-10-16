@@ -44,7 +44,18 @@ class LocalMusicViewModelTest {
             val state = viewModel.state.value
             assertEquals(LocalMusicBrowseMode.SONGS, state.browseMode)
             assertEquals(LocalMusicSortMode.ARTIST, state.sortMode)
-            assertEquals(listOf("Beta"), state.visibleTracks.map(LocalTrack::title))
+            val trackPaths = state.tracks.joinToString { track ->
+                "${track.title}: ${track.filePath} -> ${normalizedLibraryPath(track.filePath)}"
+            }
+            val rootPaths = state.roots.joinToString { rootPath ->
+                "${rootPath.path} -> ${normalizedLibraryPath(rootPath.path)}"
+            }
+            assertEquals(
+                listOf("Beta"),
+                state.visibleTracks.map(LocalTrack::title),
+                "folderFilter=${state.folderFilter}; normalizedFolder=${state.folderFilter?.let(::normalizedLibraryPath)}; " +
+                    "tracks=$trackPaths; roots=$rootPaths",
+            )
         } finally {
             viewModel.shutdown()
         }
