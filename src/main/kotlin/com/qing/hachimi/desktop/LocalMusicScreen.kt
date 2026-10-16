@@ -1,5 +1,14 @@
 package com.qing.hachimi.desktop
 
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -8,20 +17,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.background
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.runtime.produceState
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.painter.BitmapPainter
-import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -31,13 +32,31 @@ import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path as ComposePath
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
+import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
@@ -297,15 +316,22 @@ private fun LocalAlbumCard(
     canQueue: Boolean,
 ) {
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(8.dp).testTag("local-album-${album.key.hashCode()}"), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-        LocalArtworkThumbnail(album.tracks.first(), artworkRepository, 144.dp)
+        LocalArtworkActionCover(
+            track = album.tracks.first(),
+            artworkRepository = artworkRepository,
+            subject = "专辑：${album.title}",
+            key = album.key,
+            prefix = "album",
+            canPlay = canPlay,
+            canPlayNext = canPlayNext,
+            canQueue = canQueue,
+            onPlay = onPlay,
+            onPlayNext = onPlayNext,
+            onQueue = onQueue,
+        )
         Text(album.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(album.artist, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MiuixTheme.textStyles.body2)
         Text("${album.tracks.size} 首", style = MiuixTheme.textStyles.body2)
-        Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-            Button(modifier = Modifier.testTag("album-play-${album.key.hashCode()}"), enabled = canPlay, onClick = onPlay) { Text("播放") }
-            Button(modifier = Modifier.testTag("album-next-${album.key.hashCode()}"), enabled = canPlayNext, onClick = onPlayNext) { Text("下一首") }
-            Button(modifier = Modifier.testTag("album-queue-${album.key.hashCode()}"), enabled = canQueue, onClick = onQueue) { Text("队列") }
-        }
     }
 }
 
@@ -323,13 +349,161 @@ private fun LocalArtistCard(
 ) {
     val albumCount = artist.tracks.map { it.album.trim().lowercase(Locale.ROOT) }.filter(String::isNotBlank).distinct().size
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(8.dp).testTag("local-artist-${artist.name.hashCode()}"), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-        LocalArtworkThumbnail(artist.tracks.first(), artworkRepository, 144.dp)
+        LocalArtworkActionCover(
+            track = artist.tracks.first(),
+            artworkRepository = artworkRepository,
+            subject = "歌手：${artist.name}",
+            key = artist.name,
+            prefix = "artist",
+            canPlay = canPlay,
+            canPlayNext = canPlayNext,
+            canQueue = canQueue,
+            onPlay = onPlay,
+            onPlayNext = onPlayNext,
+            onQueue = onQueue,
+        )
         Text(artist.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text("$albumCount 张专辑 · ${artist.tracks.size} 首", style = MiuixTheme.textStyles.body2)
-        Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-            Button(modifier = Modifier.testTag("artist-play-${artist.name.hashCode()}"), enabled = canPlay, onClick = onPlay) { Text("播放") }
-            Button(modifier = Modifier.testTag("artist-next-${artist.name.hashCode()}"), enabled = canPlayNext, onClick = onPlayNext) { Text("下一首") }
-            Button(modifier = Modifier.testTag("artist-queue-${artist.name.hashCode()}"), enabled = canQueue, onClick = onQueue) { Text("队列") }
+    }
+}
+
+@Composable
+private fun LocalArtworkActionCover(
+    track: LocalTrack,
+    artworkRepository: LocalArtworkRepository?,
+    subject: String,
+    key: String,
+    prefix: String,
+    canPlay: Boolean,
+    canPlayNext: Boolean,
+    canQueue: Boolean,
+    onPlay: () -> Unit,
+    onPlayNext: () -> Unit,
+    onQueue: () -> Unit,
+) {
+    var menuExpanded by remember(prefix, key) { mutableStateOf(false) }
+    val id = remember(prefix, key) { key.hashCode() }
+    Box(Modifier.fillMaxWidth().height(144.dp), contentAlignment = Alignment.Center) {
+        LocalArtworkThumbnail(track, artworkRepository, 144.dp)
+        CoverIconButton(
+            description = "播放$subject",
+            tag = "$prefix-play-$id",
+            background = MiuixTheme.colorScheme.primary,
+            size = 48.dp,
+            onClick = onPlay,
+            enabled = canPlay,
+            modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp),
+        ) { DrawPlayGlyph() }
+        CoverIconButton(
+            description = "$subject 更多操作",
+            tag = "$prefix-more-$id",
+            background = Color.Black.copy(alpha = 0.62f),
+            size = 40.dp,
+            onClick = { menuExpanded = true },
+            enabled = canPlayNext || canQueue,
+            modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
+        ) { DrawMoreGlyph() }
+        if (menuExpanded) {
+            Popup(
+                alignment = Alignment.TopEnd,
+                onDismissRequest = { menuExpanded = false },
+                properties = PopupProperties(focusable = true),
+            ) {
+                Column(
+                    modifier = Modifier
+                        .widthIn(min = 152.dp, max = 208.dp)
+                        .shadow(14.dp, RoundedCornerShape(14.dp))
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(MiuixTheme.colorScheme.background)
+                        .border(1.dp, MiuixTheme.colorScheme.onBackground.copy(alpha = 0.12f), RoundedCornerShape(14.dp))
+                        .padding(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    CoverMenuItem("下一首播放", "$prefix-next-$id", canPlayNext) {
+                        menuExpanded = false
+                        onPlayNext()
+                    }
+                    CoverMenuItem("加入播放队列", "$prefix-queue-$id", canQueue) {
+                        menuExpanded = false
+                        onQueue()
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CoverIconButton(
+    description: String,
+    tag: String,
+    background: Color,
+    size: androidx.compose.ui.unit.Dp,
+    onClick: () -> Unit,
+    enabled: Boolean,
+    modifier: Modifier = Modifier,
+    icon: @Composable () -> Unit,
+) {
+    IconButton(
+        onClick = onClick,
+        enabled = enabled,
+        backgroundColor = background,
+        cornerRadius = size / 2,
+        minWidth = size,
+        minHeight = size,
+        modifier = modifier
+            .size(size)
+            .semantics { contentDescription = description; role = Role.Button }
+            .testTag(tag),
+        content = icon,
+    )
+}
+
+@Composable
+private fun CoverMenuItem(label: String, tag: String, enabled: Boolean, onClick: () -> Unit) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val hovered by interactionSource.collectIsHoveredAsState()
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(9.dp))
+            .background(if (hovered && enabled) MiuixTheme.colorScheme.primary.copy(alpha = 0.14f) else Color.Transparent)
+            .clickable(
+                enabled = enabled,
+                interactionSource = interactionSource,
+                indication = null,
+                role = Role.Button,
+                onClick = onClick,
+            )
+            .semantics { contentDescription = label; role = Role.Button }
+            .testTag(tag)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, color = if (enabled) MiuixTheme.colorScheme.onBackground else MiuixTheme.colorScheme.onBackground.copy(alpha = 0.42f), maxLines = 1)
+    }
+}
+
+@Composable
+private fun DrawPlayGlyph() {
+    Canvas(Modifier.size(20.dp)) {
+        val path = ComposePath().apply {
+            moveTo(size.width * 0.30f, size.height * 0.16f)
+            lineTo(size.width * 0.82f, size.height * 0.50f)
+            lineTo(size.width * 0.30f, size.height * 0.84f)
+            close()
+        }
+        drawPath(path, Color.White)
+    }
+}
+
+@Composable
+private fun DrawMoreGlyph() {
+    Canvas(Modifier.size(18.dp)) {
+        val radius = size.minDimension * 0.09f
+        val centerY = size.height / 2f
+        listOf(0.22f, 0.5f, 0.78f).forEach { fraction ->
+            drawCircle(Color.White, radius, Offset(size.width * fraction, centerY))
         }
     }
 }
