@@ -156,7 +156,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $root 'licenses\libmpv\winpthreads-C
 foreach ($requiredNativeLicense in @(
     'Vulkan-Headers-LICENSE.txt', 'libpng-LICENSE.txt', 'zlib-LICENSE.txt',
     'libiconv-COPYING.txt', 'libiconv-COPYING.LIB.txt', 'libcharset-COPYING.LIB.txt',
-    'XZ-COPYING.txt', 'XZ-COPYING.0BSD.txt', 'XZ-COPYING.GPLv2.txt',
+    'XZ-COPYING.txt', 'liblzma-COPYING.0BSD.txt', 'XZ-COPYING.GPLv2.txt',
     'XZ-COPYING.GPLv3.txt', 'XZ-COPYING.LGPLv2.1.txt'
 )) {
     if (-not (Test-Path -LiteralPath (Join-Path $root "licenses\libmpv\$requiredNativeLicense") -PathType Leaf)) {
