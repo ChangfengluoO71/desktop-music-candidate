@@ -52,6 +52,15 @@ jobs:
       - name: Run full test suite
         run: .\gradlew.bat --no-daemon test --rerun-tasks
 
+      - name: Upload JUnit results for CI diagnosis
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-test-results-${{ github.run_id }}
+          path: build/test-results/test/*.xml
+          if-no-files-found: ignore
+          retention-days: 7
+
   installer:
     name: Build and test Inno Setup installer
     if: github.event_name == 'workflow_dispatch'

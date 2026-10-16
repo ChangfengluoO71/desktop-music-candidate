@@ -163,7 +163,7 @@ class LocalArtworkRepositoryTest {
     }
 
     @Test
-    fun `backdrop defaults to a bounded 256 pixel edge and shares cache accounting`() = runBlocking {
+    fun `backdrop defaults to a bounded 1024 pixel edge and shares cache accounting`() = runBlocking {
         val audio = audioFile("backdrop.mp3")
         val calls = AtomicInteger()
         val requestedEdge = AtomicInteger()
@@ -176,9 +176,9 @@ class LocalArtworkRepositoryTest {
             val bytesAfterFirst = repository.cachedDecodedBytes()
             val second = repository.backdrop(track(audio))
 
-            assertEquals(256, requestedEdge.get())
-            assertEquals(256, first?.width)
-            assertEquals(256, second?.width)
+            assertEquals(1_024, requestedEdge.get())
+            assertEquals(1_024, first?.width)
+            assertEquals(1_024, second?.width)
             assertTrue(bytesAfterFirst > 0)
             assertEquals(bytesAfterFirst, repository.cachedDecodedBytes())
             assertEquals(1, calls.get())

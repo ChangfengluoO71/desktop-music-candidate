@@ -99,9 +99,9 @@ class DesktopArtworkScreenTest {
             onNodeWithTag("cover-mode-custom").performScrollTo().performClick()
             onNodeWithTag("settings-cover-directory").performScrollTo().performTextInput(custom)
             onNodeWithTag("settings-cover-directory").assertIsDisplayed()
-            onNodeWithTag("settings-save").performScrollTo().performClick()
-            waitUntil(timeoutMillis = 5_000, conditionDescription = "cover settings save responded") {
-                harness.viewModel.ui.value.actionMessage != null
+            waitUntil(timeoutMillis = 5_000, conditionDescription = "cover settings auto-save immediately") {
+                harness.viewModel.settings.value.coverDirectoryMode == CoverDirectoryMode.CUSTOM_DIRECTORY &&
+                    harness.viewModel.settings.value.customCoverDirectory == custom
             }
             assertEquals(CoverDirectoryMode.CUSTOM_DIRECTORY, harness.viewModel.settings.value.coverDirectoryMode)
             assertEquals(custom, harness.viewModel.settings.value.customCoverDirectory)
