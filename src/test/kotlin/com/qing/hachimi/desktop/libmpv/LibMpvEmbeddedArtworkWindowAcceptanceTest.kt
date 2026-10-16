@@ -137,13 +137,13 @@ class LibMpvEmbeddedArtworkWindowAcceptanceTest {
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
     )
 
-    private class WindowHandle : PointerType()
+    class WindowHandle : PointerType()
 
-    private fun interface WindowEnumerator : StdCallCallback {
+    fun interface WindowEnumerator : StdCallCallback {
         fun invoke(hwnd: WindowHandle?, data: Pointer?): Boolean
     }
 
-    private interface User32 : StdCallLibrary {
+    interface User32 : StdCallLibrary {
         fun EnumWindows(callback: WindowEnumerator, data: Pointer?): Boolean
         fun IsWindowVisible(hwnd: WindowHandle): Boolean
         fun GetWindowThreadProcessId(hwnd: WindowHandle, processId: IntByReference): Int

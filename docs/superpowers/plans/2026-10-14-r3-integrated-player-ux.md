@@ -47,7 +47,7 @@
 - [x] **Step 3: Add the Windows-native acceptance test before changing production code.** Capture visible top-level window handles, play a generated audio fixture with embedded artwork, and assert no new visible top-level window appears while WASAPI playback and position advance. If the pinned runtime is unavailable, record this RED check as `BLOCKED` and continue from the unit test.
 - [x] **Step 4: Configure `audio-display=no`** in `LibMpvPlaybackEngine.initializeClient` alongside the existing explicit mpv options.
 - [x] **Step 5: Re-run the targeted test and verify GREEN.** Run the same command and confirm it passes.
-- [x] **Step 6: Run the native shared-output task — BLOCKED.** No pinned libmpv DLL/archive was found in the searched local project, Downloads, or app-local directories; nativeMpvShared was not run.
+- [x] **Step 6: Run the native shared-output task — PASS (2026-10-14 follow-up).** Added a hash-pinned local runtime setup and Gradle defaults, then passed both `nativeMpvShared` acceptance tests under JDK 25.0.2: four formats selected WASAPI and advanced; embedded cover created zero extra visible windows. See `docs/testing/libmpv-runtime.md`.
 - [x] **Step 7: Run the full test suite** with `.\gradlew.bat --no-daemon test`.
 - [ ] **Step 8: Commit the task** with message `fix(player): disable libmpv audio cover output`.
 

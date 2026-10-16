@@ -51,3 +51,9 @@ After the device test, launch the normal app with the explicit development DLL p
 ```
 
 Use the local music page to play a known local MP3, FLAC, M4A, and WAV file. Check the play/pause/seek controls, queue advance, lyric display, and error reporting if the DLL or audio device is unavailable. Do not treat a successful app window launch alone as playback acceptance.
+
+## Runtime setup follow-up (2026-10-14)
+
+The original local runtime/archive was not present in the current user's app-data directory, so the R3 native check had remained blocked. The pinned setup is now recorded in [libmpv-runtime.md](libmpv-runtime.md) and can be installed with `scripts/prepare-libmpv.ps1`; Gradle's `nativeMpvShared` task discovers the default archive and DLL paths automatically.
+
+Using JDK 25.0.2 and the pinned 20261013 development archive, `nativeMpvShared` passed 2 tests. All four local formats selected WASAPI and advanced playback; the embedded-cover fixture produced no extra visible top-level windows. The DLL and archive hashes are recorded in the runtime document. The manual UI checks above remain outstanding.

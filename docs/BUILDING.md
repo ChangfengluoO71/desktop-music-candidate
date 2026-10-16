@@ -22,6 +22,20 @@ choco install innosetup --yes --no-progress
 
 The lines above are complete PowerShell commands. `packageExe` and `packageMsi` are optional Gradle packaging experiments; neither is used for the public preview installer.
 
+## Local libmpv playback runtime
+
+The preview installer does not bundle libmpv. To enable local playback in the source run or installed app, prepare the pinned Windows x64 development runtime for the current user:
+
+```powershell
+.\scripts\prepare-libmpv.ps1
+.\gradlew.bat --no-daemon nativeMpvShared
+.\gradlew.bat --no-daemon run
+```
+
+The script verifies the upstream archive SHA-256 before extraction and puts `libmpv-2.dll` in `%APPDATA%\DesktopMusicCandidate\libmpv`. The native acceptance task automatically uses this runtime and its cached archive; explicit `-PmpvLibrary` and `-PmpvArchive` overrides remain available. Install 7-Zip if it is not already installed. See [the pinned runtime record](testing/libmpv-runtime.md) for source, hashes, and distribution boundaries.
+
+The selected Windows build is an unofficial third-party binary listed by mpv's Windows installation page. It is provisioned for local testing only; the project does not bundle or redistribute it. Do not enable release packaging for this binary until its exact build configuration and all linked component licenses have been audited.
+
 Build outputs are under `build/` and are intentionally ignored by Git. The app image is under `build/compose/binaries/main/app/DesktopMusicCandidate/`. The Inno Setup executable is written to `build/installer/`.
 
 ## Wrapper integrity
