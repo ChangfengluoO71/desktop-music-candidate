@@ -46,7 +46,7 @@ Source: "..\build\local-libmpv\*"; DestDir: "{app}\libmpv"; Flags: ignoreversion
 #endif
 #ifdef IncludeReleaseMpv
 Source: "..\build\release-libmpv\runtime\*"; DestDir: "{app}\libmpv"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "..\build\release-libmpv\licenses\*"; DestDir: "{app}\licenses\libmpv"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\build\release-libmpv\licenses\libmpv\*"; DestDir: "{app}\licenses\libmpv"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\build\release-libmpv\libmpv-corresponding-source.tar.gz"; DestDir: "{app}\licenses"; Flags: ignoreversion
 #endif
 Source: "..\LICENSE"; DestDir: "{app}\licenses"; Flags: ignoreversion

@@ -170,9 +170,9 @@ jobs:
         env:
           NATIVE_SOURCE_SHA: ${{ steps.validate-native-run.outputs.source-sha }}
         run: |
-          $parentSha = git rev-parse "$env:GITHUB_SHA^"
-          if ($LASTEXITCODE -ne 0 -or $parentSha -ne $env:NATIVE_SOURCE_SHA) {
-            throw 'The reusable native runtime must come from the current commit parent.'
+          git merge-base --is-ancestor $env:NATIVE_SOURCE_SHA $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) {
+            throw 'The reusable native runtime must come from this branch history.'
           }
           git diff --quiet $env:NATIVE_SOURCE_SHA $env:GITHUB_SHA -- scripts/build-release-libmpv.sh scripts/assert-release-payload.ps1 THIRD_PARTY.md docs/testing/libmpv-runtime.md
           if ($LASTEXITCODE -ne 0) {
