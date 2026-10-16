@@ -26,8 +26,11 @@ on:
       publish_release:
         description: "Publish this build as a GitHub release"
         required: true
-        type: boolean
-        default: false
+        type: choice
+        options:
+          - build_only
+          - publish
+        default: build_only
 
 permissions:
   actions: read
@@ -278,7 +281,7 @@ jobs:
 
   publish-release:
     name: Publish GitHub release
-    if: github.event_name == 'workflow_dispatch' && inputs.publish_release
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_release == 'publish'
     needs: installer
     runs-on: windows-latest
     permissions:
