@@ -9,7 +9,7 @@ on:
         description: "Windows package version (numeric major.minor.patch)"
         required: true
         type: string
-        default: "0.1.2"
+        default: "0.0.2"
       update_channel:
         description: "Update channel embedded in the application"
         required: true
@@ -61,10 +61,50 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  native-runtime:
+    name: Build pinned LGPL libmpv runtime
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up MSYS2 UCRT64 toolchain
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            git
+            curl
+            tar
+            binutils
+            mingw-w64-ucrt-x86_64-toolchain
+            mingw-w64-ucrt-x86_64-meson
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-yasm
+            mingw-w64-ucrt-x86_64-nasm
+            mingw-w64-ucrt-x86_64-python
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-libwinpthread
+
+      - name: Build stable LGPL runtime from pinned sources
+        shell: msys2 {0}
+        run: bash scripts/build-release-libmpv.sh
+
+      - name: Upload native runtime and corresponding source
+        uses: actions/upload-artifact@v7
+        with:
+          name: dmc-lgpl-libmpv-${{ github.sha }}
+          path: build/release-libmpv/
+          if-no-files-found: error
+          retention-days: 7
+
   installer:
     name: Build and test Inno Setup installer
     if: github.event_name == 'workflow_dispatch'
-    needs: test
+    needs: [test, native-runtime]
     runs-on: windows-latest
     steps:
       - name: Check out source
@@ -84,6 +124,12 @@ jobs:
         with:
           cache-provider: basic
 
+      - name: Download native runtime and corresponding source
+        uses: actions/download-artifact@v8
+        with:
+          name: dmc-lgpl-libmpv-${{ github.sha }}
+          path: build/release-libmpv
+
       - name: Build app image with bundled runtime
         env:
           RELEASE_VERSION: ${{ inputs.release_version }}
@@ -93,6 +139,12 @@ jobs:
             throw 'Version must be numeric major.minor.patch, for example 0.0.1.'
           }
           .\gradlew.bat --no-daemon "-PreleaseVersion=$env:RELEASE_VERSION" "-PupdateChannel=$env:UPDATE_CHANNEL" createDistributable
+
+      - name: Test staged libmpv against generated fixtures
+        env:
+          MPV_LIBRARY: ${{ github.workspace }}\build\release-libmpv\runtime\libmpv-2.dll
+          MPV_SOURCE_ARCHIVE: ${{ github.workspace }}\build\release-libmpv\libmpv-corresponding-source.tar.gz
+        run: .\gradlew.bat --no-daemon "-PmpvLibrary=$env:MPV_LIBRARY" "-PmpvArchive=$env:MPV_SOURCE_ARCHIVE" nativeMpvPoc
 
       - name: Assert Gradle, generated metadata, and release tag version
         env:
@@ -118,17 +170,23 @@ jobs:
         env:
           RELEASE_VERSION: ${{ inputs.release_version }}
         run: |
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "installer\setup.iss" "/DMyAppVersion=$env:RELEASE_VERSION"
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "installer\setup.iss" "/DMyAppVersion=$env:RELEASE_VERSION" "/DIncludeReleaseMpv"
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed with exit code $LASTEXITCODE." }
           $installer = ".\build\installer\DesktopMusicCandidate-$env:RELEASE_VERSION-Setup.exe"
           if (-not (Test-Path $installer)) { throw 'Inno Setup did not produce the installer with the requested version.' }
           .\scripts\smoke-test-windows-installer.ps1 -InstallerPath $installer
+          $releaseAssets = ".\build\release-assets"
+          New-Item -ItemType Directory -Path $releaseAssets -Force | Out-Null
+          Copy-Item -LiteralPath $installer -Destination $releaseAssets
+          Copy-Item -LiteralPath ".\build\release-libmpv\libmpv-corresponding-source.tar.gz" -Destination $releaseAssets
+          Copy-Item -LiteralPath ".\build\release-libmpv\runtime\runtime-manifest.json" -Destination (Join-Path $releaseAssets "libmpv-runtime-manifest.json")
+          Get-ChildItem $releaseAssets -File | Get-FileHash -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLowerInvariant())  $([System.IO.Path]::GetFileName($_.Path))" } | Set-Content -LiteralPath "$releaseAssets\SHA256SUMS.txt" -Encoding ascii
 
       - name: Upload short-lived installer artifact
         uses: actions/upload-artifact@v7
         with:
           name: desktop-music-candidate-inno-setup-v${{ inputs.release_version }}-${{ github.sha }}
-          path: build/installer/*.exe
+          path: build/release-assets/*
           if-no-files-found: error
           retention-days: 7
 
@@ -145,7 +203,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Download installer artifact
+      - name: Download installer and source artifacts
         uses: actions/download-artifact@v8
         with:
           name: desktop-music-candidate-inno-setup-v${{ inputs.release_version }}-${{ github.sha }}
@@ -169,12 +227,30 @@ jobs:
           if (-not $installer) {
             throw 'Installer artifact is missing.'
           }
+          if (-not (Test-Path 'release-assets\libmpv-corresponding-source.tar.gz') -or -not (Test-Path 'release-assets\libmpv-runtime-manifest.json') -or -not (Test-Path 'release-assets\SHA256SUMS.txt')) {
+            throw 'The release is missing the native runtime source, provenance manifest, or checksum file.'
+          }
+          foreach ($line in Get-Content 'release-assets\SHA256SUMS.txt') {
+            $parts = $line -split '\s+', 2
+            if ($parts.Count -ne 2) { throw "Malformed checksum line: $line" }
+            $actual = (Get-FileHash -LiteralPath (Join-Path 'release-assets' $parts[1]) -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actual -ne $parts[0]) { throw "Release asset checksum mismatch: $($parts[1])" }
+          }
           if ($env:UPDATE_CHANNEL -eq 'stable') {
             $title = "DMC $tag"
-            $notes = "Official stable DMC release. The Windows installer is built with Inno Setup 6 and includes the Java runtime, selectable installation directory, Start Menu shortcuts, and uninstaller."
-            gh release create $tag $installer.FullName --repo $env:GITHUB_REPOSITORY --title $title --notes $notes --target $env:GITHUB_SHA
+            $notes = "Official stable DMC release. The Windows Inno Setup installer includes a pinned LGPL libmpv runtime, its corresponding source archive and license notices, the Java runtime, selectable installation directory, Start Menu shortcuts, and uninstaller. SHA256SUMS.txt contains hashes for release assets."
+            gh release create $tag $installer.FullName 'release-assets\libmpv-corresponding-source.tar.gz' 'release-assets\libmpv-runtime-manifest.json' 'release-assets\SHA256SUMS.txt' --repo $env:GITHUB_REPOSITORY --title $title --notes $notes --target $env:GITHUB_SHA
           } else {
             $title = "DMC $tag (Preview)"
             $notes = "DMC preview installer built with Inno Setup 6. This release may contain incomplete features and is intended for evaluation."
-            gh release create $tag $installer.FullName --repo $env:GITHUB_REPOSITORY --title $title --notes $notes --prerelease --latest=false --target $env:GITHUB_SHA
+            gh release create $tag $installer.FullName 'release-assets\libmpv-corresponding-source.tar.gz' 'release-assets\libmpv-runtime-manifest.json' 'release-assets\SHA256SUMS.txt' --repo $env:GITHUB_REPOSITORY --title $title --notes $notes --prerelease --latest=false --target $env:GITHUB_SHA
           }
+          if ($LASTEXITCODE -ne 0) {
+            throw "GitHub Release creation failed with exit code $LASTEXITCODE."
+          }
+          $publishedJson = gh release view $tag --repo $env:GITHUB_REPOSITORY --json tagName,isDraft,isPrerelease,assets
+          if ($LASTEXITCODE -ne 0) { throw "Could not verify the published release (exit code $LASTEXITCODE)." }
+          $published = $publishedJson | ConvertFrom-Json
+          if ($published.tagName -ne $tag -or $published.isDraft) { throw 'The published release tag or visibility is incorrect.' }
+          if ($env:UPDATE_CHANNEL -eq 'stable' -and $published.isPrerelease) { throw 'The stable release was incorrectly published as a prerelease.' }
+          if (-not (@($published.assets | Where-Object { $_.name -eq $installer.Name }).Count)) { throw 'The published release is missing its exact Windows installer asset.' }

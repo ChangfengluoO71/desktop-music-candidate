@@ -70,15 +70,30 @@ try {
         (Join-Path $installDir 'licenses\LICENSE'),
         (Join-Path $installDir 'licenses\THIRD_PARTY.md'),
         (Join-Path $installDir 'licenses\GPL-2.0.txt'),
-        (Join-Path $installDir 'licenses\Classpath-Exception-2.0.txt')
+        (Join-Path $installDir 'licenses\Classpath-Exception-2.0.txt'),
+        (Join-Path $installDir 'licenses\LGPL-2.1.txt'),
+        (Join-Path $installDir 'licenses\libmpv\winpthreads-COPYING.txt'),
+        (Join-Path $installDir 'licenses\libmpv\GCC-COPYING.RUNTIME.txt'),
+        (Join-Path $installDir 'licenses\jaudiotagger-3.0.1-sources.jar')
     )) {
         if (-not (Test-Path -LiteralPath $licensePath -PathType Leaf)) {
             throw "Required bundled license notice is missing: $licensePath"
         }
     }
+    $jaudiotaggerRuntime = Get-ChildItem -LiteralPath $appDirectory -Filter 'jaudiotagger-3.0.1-*.jar' -File | Select-Object -First 1
+    if (-not $jaudiotaggerRuntime -or -not $classpath.Contains($jaudiotaggerRuntime.Name)) {
+        throw 'The replaceable jaudiotagger 3.0.1 runtime JAR is missing from the installed classpath.'
+    }
+    $jaudiotaggerSource = Join-Path $installDir 'licenses\jaudiotagger-3.0.1-sources.jar'
+    $jaudiotaggerSourceHash = (Get-FileHash -LiteralPath $jaudiotaggerSource -Algorithm SHA256).Hash.ToUpperInvariant()
+    if ($jaudiotaggerSourceHash -ne 'D9C79A145944E6BC37579403843C9DA84CD81459E42C9877351802EE284F5858') {
+        throw 'The installed jaudiotagger 3.0.1 source JAR does not match the audited Maven Central artifact.'
+    }
     if (-not (Test-Path -LiteralPath $uninstaller -PathType Leaf)) {
         throw 'Inno Setup uninstaller was not registered in the install directory.'
     }
+
+    & (Join-Path $PSScriptRoot 'assert-release-payload.ps1') -InstallRoot $installDir
 
     $startMenu = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs'
     $startMenuLink = Get-ChildItem -LiteralPath $startMenu -Filter 'Desktop Music Candidate.lnk' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -95,6 +110,22 @@ try {
         throw 'Optional desktop shortcut was not created with the default task selection.'
     }
 
+    $applicationProcess = Start-Process -FilePath $application -WorkingDirectory $installDir -PassThru -WindowStyle Hidden
+    try {
+        Start-Sleep -Seconds 10
+        $applicationProcess.Refresh()
+        if ($applicationProcess.HasExited) {
+            throw "Installed application exited during the startup smoke test (exit code $($applicationProcess.ExitCode))."
+        }
+    }
+    finally {
+        $applicationProcess.Refresh()
+        if (-not $applicationProcess.HasExited) {
+            Stop-Process -Id $applicationProcess.Id -Force -ErrorAction SilentlyContinue
+            Wait-Process -Id $applicationProcess.Id -Timeout 10 -ErrorAction SilentlyContinue
+        }
+    }
+
     $uninstallResult = Start-Process -FilePath $uninstaller -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') -Wait -PassThru
     if ($uninstallResult.ExitCode -ne 0) {
         throw "Uninstaller exited with code $($uninstallResult.ExitCode)."
@@ -106,7 +137,7 @@ try {
         throw 'Uninstall removed user data from APPDATA.'
     }
 
-    Write-Output 'Installer smoke test passed: custom directory, bundled Java/OpenJFX runtime, media native decoder, license notices, Start Menu and desktop shortcuts, uninstall, and user-data preservation.'
+    Write-Output 'Installer smoke test passed: custom directory, Java runtime version and app startup, OpenJFX native media decoder, LGPL runtime/source/import hashes, license notices, Start Menu and desktop shortcuts, uninstall, and user-data preservation.'
 }
 finally {
     $env:APPDATA = $originalAppData

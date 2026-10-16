@@ -135,8 +135,9 @@ fun Test.configureNativeMpvRuntime() {
         check(library.isFile && library.name.equals("libmpv-2.dll", ignoreCase = true)) {
             "mpvLibrary must point to an existing absolute libmpv-2.dll; no PATH lookup is used."
         }
-        check(archive.isFile && archive.extension.lowercase() in setOf("zip", "7z")) {
-            "mpvArchive must point to an existing pinned .zip or .7z archive."
+        val archiveName = archive.name.lowercase()
+        check(archive.isFile && (archive.extension.lowercase() in setOf("zip", "7z") || archiveName.endsWith(".tar.gz") || archiveName.endsWith(".tgz"))) {
+            "mpvArchive must point to an existing pinned .zip, .7z, .tar.gz, or .tgz archive."
         }
         systemProperty("dmc.libmpv.path", library.absolutePath)
         systemProperty("dmc.libmpv.archive", archive.absolutePath)

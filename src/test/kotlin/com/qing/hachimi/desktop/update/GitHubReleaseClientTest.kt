@@ -47,6 +47,17 @@ class GitHubReleaseClientTest {
     }
 
     @Test
+    fun `preview installation can update to a newer stable release`() = withServer { server ->
+        server.respondWith(releases(release("0.0.2")))
+
+        val previewInstall = client(server, UpdateChannel.PREVIEW, "0.0.1").check()
+
+        val available = assertIs<ReleaseCheckResult.UpdateAvailable>(previewInstall)
+        assertEquals("0.0.2", available.release.version.toString())
+        assertEquals("DesktopMusicCandidate-0.0.2-Setup.exe", available.release.asset.name)
+    }
+
+    @Test
     fun `draft releases are ignored`() = withServer { server ->
         server.respondWith(releases(release("9.0.0", draft = true)))
 

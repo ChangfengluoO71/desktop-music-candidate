@@ -44,6 +44,11 @@ Source: "{#MySourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdir
 ; Local acceptance only. CI/release packages omit this private development runtime unless explicitly opted in.
 Source: "..\build\local-libmpv\*"; DestDir: "{app}\libmpv"; Flags: ignoreversion recursesubdirs createallsubdirs
 #endif
+#ifdef IncludeReleaseMpv
+Source: "..\build\release-libmpv\runtime\*"; DestDir: "{app}\libmpv"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\build\release-libmpv\licenses\*"; DestDir: "{app}\licenses\libmpv"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\build\release-libmpv\libmpv-corresponding-source.tar.gz"; DestDir: "{app}\licenses"; Flags: ignoreversion
+#endif
 Source: "..\LICENSE"; DestDir: "{app}\licenses"; Flags: ignoreversion
 Source: "..\THIRD_PARTY.md"; DestDir: "{app}\licenses"; Flags: ignoreversion
 Source: "..\LICENSES\*"; DestDir: "{app}\licenses"; Flags: ignoreversion recursesubdirs createallsubdirs

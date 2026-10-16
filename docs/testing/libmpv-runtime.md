@@ -1,49 +1,46 @@
-# Pinned local libmpv runtime
+# Windows libmpv runtime provenance and replacement
 
-## Purpose
+## Release gate
 
-The DMC preview does not bundle libmpv. The player locates `libmpv-2.dll` in `%APPDATA%\DesktopMusicCandidate\libmpv` or accepts an explicit absolute DLL path. This setup is for local development and playback acceptance; it is not a release dependency.
+The Windows installer must ship a tested x64 `libmpv-2.dll` in its private `libmpv` directory. It must not use the local shinchiro development DLL or an untested upstream `git-release` artifact. The build script pins mpv stable 0.41.0 and all source archives by immutable commit and SHA-256. The build and installer smoke checks fail if the native import closure contains an unbundled non-Windows DLL or if an expected license/source file is missing.
 
-## Pinned Windows x64 development build
+The exact build output is recorded in `libmpv/runtime-manifest.json` inside the installed application. The installer also includes `licenses/libmpv/THIRD_PARTY.md`, component license texts, the matching source bundle, and the Jaudiotagger source JAR. The public GitHub Release attaches the same source bundle.
 
-| Item | Value |
-|---|---|
-| Provider | [shinchiro/mpv-winbuild-cmake release 20261013](https://github.com/shinchiro/mpv-winbuild-cmake/releases/tag/20261013), linked from the [mpv Windows installation page](https://mpv.io/installation/) |
-| Asset | `mpv-dev-x86_64-20261013-git-9d144e57b6.7z` |
-| Archive SHA-256 | `10860837BC04491862C1E66A95DC1AF1D7886D69757CE447A09E1E49AE993B52` |
-| `libmpv-2.dll` SHA-256 | `5080E00CD114F3DFC0EB87F35068FEC70AFC8BFD6FC29DCA4B79C874A42485EE` |
-| Client API | 2.5 in the 2026-10-14 native acceptance run |
+## Pinned source inputs
 
-The source page describes Windows builds as unofficial third-party builds (with first-party CI builds as an exception) and links to this provider. The script pins a specific release asset and verifies its published archive hash before installing. It does not use PATH lookup or turn off TLS verification.
+| Component | Version | Source revision | License noted by upstream |
+|---|---|---|---|
+| mpv/libmpv | 0.41.0 | `41f6a645068483470267271e1d09966ca3b9f413` | LGPL-2.1-or-later when built without GPL-only files |
+| FFmpeg | 8.0.3 | upstream `n8.0.3`: `8ae0b34901ba60a802f183ee75a250a9fc3e09a5`; Meson port: `74d461d3ed8a9fdd956336fd2a6a77ebc1bb91a9` | LGPL-2.1-or-later; `gpl`, `version3`, and `nonfree` disabled |
+| libass | 0.17.5 | `4a05d8127f525943ebf45fdc6497c9e665947f0d` | ISC |
+| libplacebo | 7.360.1 | `cee9b076f2c63104ccfd497fa79c39a867293ec4` | LGPL-2.1-or-later |
+| FreeType | 2.14.1 | `526ec5c47b9ebccc4754c85ac0c0cdf7c85a5e9b` | FreeType License (FTL) |
+| FriBidi | 1.0.17 | `b93119f5fdc7ea47672cc304c1455ffa6dfe7536` | LGPL-2.1-or-later |
+| HarfBuzz | 12.2.0 | `0426759f2b03e479495e987608f10e0866e70180` | MIT |
+| Winpthreads | MSYS2 package version recorded in the runtime manifest | Matching MSYS2 source package recorded in the source bundle | MIT and BSD-3-Clause |
 
-## Prepare and use
+`build-release-libmpv.sh` records the downloaded source archive checksums, Windows import names, and MSYS2 package versions. The corresponding-source archive includes the exact input archives, the matching MSYS2 Winpthreads source package, and the build script. The runtime keeps Winpthreads as a separate DLL; the Windows smoke check requires it in the import closure and installer. GCC runtime helpers are static and built with the GCC Runtime Library Exception; the matching exception text is included in the installer. This is provenance for the actual candidate; it does not claim a bit-for-bit reproducible build on an unspecified host.
 
-From the repository root in PowerShell:
+## Build configuration and limits
 
-```powershell
-.\scripts\prepare-libmpv.ps1
-.\gradlew.bat --no-daemon nativeMpvShared
-.\gradlew.bat --no-daemon run
-```
+The release runtime is a shared Windows GNU build with `libmpv=true`, `cplayer=false`, WASAPI enabled, mpv's GPL option disabled, and FFmpeg's GPL/version3/nonfree options disabled. FFmpeg's optional `postproc` library and unrelated video backends are also disabled. All produced dependency DLLs, including `libwinpthread-1.dll`, are staged beside `libmpv-2.dll`; the build rejects dynamic GCC compiler runtime DLLs and emits per-DLL import lists and license-component mappings for review.
 
-7-Zip is required for the `.7z` archive. The archive is cached under `%LOCALAPPDATA%\DMC\libmpv`; extracted DLLs are installed under `%APPDATA%\DesktopMusicCandidate\libmpv`, which the app already checks. Native acceptance tasks use these paths automatically. Existing explicit Gradle properties can still override them.
+The `nativeMpvPoc` task validates decoding generated MP3, FLAC, M4A/AAC, and WAV fixtures, plus error cases, against the staged release DLL. `nativeMpvShared` uses the Windows machine's real WASAPI device and must be run on the user's PC for the final audio-output check. Installer smoke verifies custom installation, bundled Java, runtime/import closure, notices, source bundle hashes, replacement paths, uninstall, and user-data preservation.
 
-The script replaces only the dedicated app-private `libmpv` directory. If that directory already exists, it is retained as a uniquely named sibling backup before the new runtime is put in place. The source archive and extracted staging files are kept for repeatable acceptance and troubleshooting.
+The official mpv Windows build documentation says to review `-Dgpl=false` and similar options for subprojects. FFmpeg documents that enabling GPL or nonfree options changes the resulting build's license conditions. DMC's release checks assert the exact options and source archive hashes; they are not a substitute for legal advice.
 
-## Local verification record (2026-10-14)
+## Replacing the installed libraries
 
-`nativeMpvShared` passed on Windows 11 with JDK 25.0.2, using the default paths installed by the script:
+The player locates `libmpv-2.dll` in the app-private `{app}\libmpv` directory. The installer keeps that folder separate from the Java application image. To replace the runtime, rebuild or obtain compatible x64 DLLs for the exact C client API, stop DMC, replace the native DLLs in `{app}\libmpv`, and restart. Preserve DLL names and include every required adjacent DLL. The in-app updater replaces the installer-owned app directory as a whole; user data under `%APPDATA%\DesktopMusicCandidate` remains separate.
 
-- libmpv client API: 2.5; archive SHA-256 `10860837BC04491862C1E66A95DC1AF1D7886D69757CE447A09E1E49AE993B52`; DLL SHA-256 `5080E00CD114F3DFC0EB87F35068FEC70AFC8BFD6FC29DCA4B79C874A42485EE`.
-- MP3, FLAC, M4A/AAC, and WAV each selected `wasapi` and reported a positive playback position.
-- Embedded-cover MP3 selected `wasapi`; playback position advanced; zero additional visible top-level windows were created.
-- The source app was launched with plain `run` and Windows process-module inspection confirmed it loaded `%APPDATA%\DesktopMusicCandidate\libmpv\libmpv-2.dll` without an explicit `dmc.libmpv.path` override.
-- Result: 2 native tests passed, 0 failed. This validates the local runtime and these playback paths; it does not count as manual UI acceptance or verify every player control.
+Jaudiotagger is independently replaceable at `{app}\app\jaudiotagger-3.0.1.jar`; its source and LGPL license are under `{app}\licenses`. A compatible modified JAR can be placed under the same classpath filename.
 
-The first attempt ran Gradle under the machine's Java 17 default and failed test discovery because a Miuix class requires Java 21 bytecode. Native test tasks now fail early with a JDK 21+ message; use the project's verified JDK 25.
+## References
 
-## Distribution boundary
-
-This is a local development runtime. The script writes it outside the Git worktree, and no build task copies it into the application image, EXE, Inno Setup installer, or release. mpv documents GPLv2+ as the default project license and describes an LGPL mode with build-specific exclusions; a switch or DLL name alone is not a license audit. Before distributing any libmpv binary, record the exact build configuration and review mpv, FFmpeg, and every linked component's obligations against the binary's actual configuration.
-
-See the [mpv copyright and license notes](https://github.com/mpv-player/mpv/blob/master/Copyright) and the [mpv Windows installation page](https://mpv.io/installation/).
+- [mpv 0.41.0 Windows build instructions](https://github.com/mpv-player/mpv/blob/41f6a645068483470267271e1d09966ca3b9f413/DOCS/compile-windows.md)
+- [mpv 0.41.0 copyright and license conditions](https://github.com/mpv-player/mpv/blob/41f6a645068483470267271e1d09966ca3b9f413/Copyright)
+- [FFmpeg licensing and legal considerations](https://ffmpeg.org/legal.html)
+- [FFmpeg 8.0.3 release and source archives](https://ffmpeg.org/download.html)
+- [MSYS2 Winpthreads package, license IDs, source package and installed COPYING path](https://packages.msys2.org/packages/mingw-w64-ucrt-x86_64-libwinpthread)
+- [GCC libstdc++ license and Runtime Library Exception 3.1](https://gcc.gnu.org/onlinedocs/libstdc++/manual/license.html)
+- [LGPL 2.1 text included by DMC](../../LICENSES/LGPL-2.1.txt)
