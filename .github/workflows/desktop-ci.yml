@@ -18,6 +18,11 @@ on:
           - stable
           - preview
         default: stable
+      runtime_artifact_run_id:
+        description: "Optional successful native-runtime run ID to reuse when resuming packaging"
+        required: false
+        type: string
+        default: ""
       publish_release:
         description: "Publish this build as a GitHub release"
         required: true
@@ -25,6 +30,7 @@ on:
         default: false
 
 permissions:
+  actions: read
   contents: read
 
 jobs:
@@ -63,7 +69,7 @@ jobs:
 
   native-runtime:
     name: Build pinned LGPL libmpv runtime
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && inputs.runtime_artifact_run_id == ''
     runs-on: windows-latest
     steps:
       - name: Check out source
@@ -112,12 +118,66 @@ jobs:
 
   installer:
     name: Build and test Inno Setup installer
-    if: github.event_name == 'workflow_dispatch'
+    if: >-
+      always() &&
+      github.event_name == 'workflow_dispatch' &&
+      needs.test.result == 'success' &&
+      (needs.native-runtime.result == 'success' || needs.native-runtime.result == 'skipped')
     needs: [test, native-runtime]
     runs-on: windows-latest
     steps:
       - name: Check out source
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Validate reused native-runtime build
+        if: inputs.runtime_artifact_run_id != ''
+        id: validate-native-run
+        uses: actions/github-script@v8
+        env:
+          RUNTIME_ARTIFACT_RUN_ID: ${{ inputs.runtime_artifact_run_id }}
+        with:
+          script: |
+            const runId = Number(process.env.RUNTIME_ARTIFACT_RUN_ID);
+            if (!Number.isSafeInteger(runId) || runId < 1) {
+              throw new Error('The reused native-runtime run ID must be a positive integer.');
+            }
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const { data: run } = await github.rest.actions.getWorkflowRun({ owner, repo, run_id: runId });
+            if (run.status !== 'completed' || run.event !== 'workflow_dispatch' || run.head_branch !== 'main' ||
+                run.path !== '.github/workflows/desktop-ci.yml' ||
+                run.head_repository?.full_name?.toLowerCase() !== `${owner}/${repo}`.toLowerCase()) {
+              throw new Error('The selected artifact must come from a completed Desktop CI dispatch on this repository main branch.');
+            }
+            const { data: jobList } = await github.rest.actions.listJobsForWorkflowRun({ owner, repo, run_id: runId });
+            const nativeJob = jobList.jobs.find(job => job.name === 'Build pinned LGPL libmpv runtime');
+            if (nativeJob?.conclusion !== 'success') {
+              throw new Error('The selected run does not contain a successful native-runtime build.');
+            }
+            const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, { owner, repo, run_id: runId });
+            const expectedName = `dmc-lgpl-libmpv-${run.head_sha}`;
+            const artifact = artifacts.find(candidate => candidate.name === expectedName && !candidate.expired);
+            if (!artifact) {
+              throw new Error(`The selected run is missing the unexpired ${expectedName} artifact.`);
+            }
+            core.setOutput('source-sha', run.head_sha);
+            core.setOutput('artifact-name', artifact.name);
+
+      - name: Confirm native build inputs are unchanged
+        if: inputs.runtime_artifact_run_id != ''
+        env:
+          NATIVE_SOURCE_SHA: ${{ steps.validate-native-run.outputs.source-sha }}
+        run: |
+          $parentSha = git rev-parse "$env:GITHUB_SHA^"
+          if ($LASTEXITCODE -ne 0 -or $parentSha -ne $env:NATIVE_SOURCE_SHA) {
+            throw 'The reusable native runtime must come from the current commit parent.'
+          }
+          git diff --quiet $env:NATIVE_SOURCE_SHA $env:GITHUB_SHA -- scripts/build-release-libmpv.sh scripts/assert-release-payload.ps1 THIRD_PARTY.md docs/testing/libmpv-runtime.md
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Native build or license inputs changed; rebuild libmpv from current sources.'
+          }
 
       - name: Validate Gradle Wrapper
         uses: gradle/actions/wrapper-validation@v6
@@ -134,9 +194,20 @@ jobs:
           cache-provider: basic
 
       - name: Download native runtime and corresponding source
+        if: inputs.runtime_artifact_run_id == ''
         uses: actions/download-artifact@v8
         with:
           name: dmc-lgpl-libmpv-${{ github.sha }}
+          path: build/release-libmpv
+
+      - name: Reuse native runtime and corresponding source from prior run
+        if: inputs.runtime_artifact_run_id != ''
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ steps.validate-native-run.outputs.artifact-name }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.runtime_artifact_run_id }}
           path: build/release-libmpv
 
       - name: Build app image with bundled runtime
@@ -153,7 +224,9 @@ jobs:
         env:
           MPV_LIBRARY: ${{ github.workspace }}\build\release-libmpv\runtime\libmpv-2.dll
           MPV_SOURCE_ARCHIVE: ${{ github.workspace }}\build\release-libmpv\libmpv-corresponding-source.tar.gz
-        run: .\gradlew.bat --no-daemon "-PmpvLibrary=$env:MPV_LIBRARY" "-PmpvArchive=$env:MPV_SOURCE_ARCHIVE" nativeMpvPoc
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          UPDATE_CHANNEL: ${{ inputs.update_channel }}
+        run: .\gradlew.bat --no-daemon "-PreleaseVersion=$env:RELEASE_VERSION" "-PupdateChannel=$env:UPDATE_CHANNEL" "-PmpvLibrary=$env:MPV_LIBRARY" "-PmpvArchive=$env:MPV_SOURCE_ARCHIVE" nativeMpvPoc
 
       - name: Assert Gradle, generated metadata, and release tag version
         env:
