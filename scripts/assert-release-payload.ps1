@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory = $true)]
-    [string]$InstallRoot
+    [string]$InstallRoot,
+    [string]$ExpectedSourceCommit = $env:GITHUB_SHA
 )
 
 $ErrorActionPreference = 'Stop'
@@ -163,8 +164,8 @@ foreach ($requiredNativeLicense in @(
         throw "The release payload is missing a native runtime license notice: $requiredNativeLicense"
     }
 }
-if ($env:GITHUB_SHA -and $manifest.build.sourceCommit -ne $env:GITHUB_SHA) {
-    throw 'The native runtime source commit differs from the application source commit.'
+if ($ExpectedSourceCommit -and $manifest.build.sourceCommit -ne $ExpectedSourceCommit) {
+    throw 'The native runtime source commit differs from the expected runtime build commit.'
 }
 if ([string]::IsNullOrWhiteSpace($manifest.sourceBundle.file) -or [string]::IsNullOrWhiteSpace($manifest.sourceBundle.sha256)) {
     throw 'The runtime manifest does not identify its corresponding source bundle.'

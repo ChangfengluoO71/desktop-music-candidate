@@ -254,12 +254,13 @@ jobs:
       - name: Compile and smoke-test installer
         env:
           RELEASE_VERSION: ${{ inputs.release_version }}
+          EXPECTED_NATIVE_SOURCE_SHA: ${{ steps.validate-native-run.outputs.source-sha || github.sha }}
         run: |
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "installer\setup.iss" "/DMyAppVersion=$env:RELEASE_VERSION" "/DIncludeReleaseMpv"
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed with exit code $LASTEXITCODE." }
           $installer = ".\build\installer\DesktopMusicCandidate-$env:RELEASE_VERSION-Setup.exe"
           if (-not (Test-Path $installer)) { throw 'Inno Setup did not produce the installer with the requested version.' }
-          .\scripts\smoke-test-windows-installer.ps1 -InstallerPath $installer
+          .\scripts\smoke-test-windows-installer.ps1 -InstallerPath $installer -ExpectedSourceCommit $env:EXPECTED_NATIVE_SOURCE_SHA
           $releaseAssets = ".\build\release-assets"
           New-Item -ItemType Directory -Path $releaseAssets -Force | Out-Null
           Copy-Item -LiteralPath $installer -Destination $releaseAssets

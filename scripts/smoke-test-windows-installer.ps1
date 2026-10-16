@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory = $true)]
-    [string]$InstallerPath
+    [string]$InstallerPath,
+    [string]$ExpectedSourceCommit = $env:GITHUB_SHA
 )
 
 $ErrorActionPreference = 'Stop'
@@ -93,7 +94,7 @@ try {
         throw 'Inno Setup uninstaller was not registered in the install directory.'
     }
 
-    & (Join-Path $PSScriptRoot 'assert-release-payload.ps1') -InstallRoot $installDir
+    & (Join-Path $PSScriptRoot 'assert-release-payload.ps1') -InstallRoot $installDir -ExpectedSourceCommit $ExpectedSourceCommit
 
     $startMenu = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs'
     $startMenuLink = Get-ChildItem -LiteralPath $startMenu -Filter 'Desktop Music Candidate.lnk' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
