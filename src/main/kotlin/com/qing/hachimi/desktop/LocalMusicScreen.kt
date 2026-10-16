@@ -66,7 +66,6 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import java.nio.file.Path
 import java.util.Locale
 import kotlin.math.roundToInt
-import javax.swing.JFileChooser
 
 @Composable
 internal fun LocalMusicScreen(
@@ -604,12 +603,5 @@ private fun LocalTrackRow(
 }
 
 private fun chooseMusicDirectories(): List<Path> {
-    val chooser = JFileChooser().apply {
-        fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
-        isMultiSelectionEnabled = true
-        dialogTitle = "选择本地音乐目录"
-    }
-    if (chooser.showOpenDialog(null) != JFileChooser.APPROVE_OPTION) return emptyList()
-    val selections = chooser.selectedFiles.orEmpty().map { it.toPath() }
-    return selections.ifEmpty { listOfNotNull(chooser.selectedFile?.toPath()) }
+    return DesktopFilePicker.chooseMusicDirectories()
 }

@@ -213,6 +213,10 @@ internal class LocalArtworkRepository(
         return deferred.await()
     }
 
+    /** Returns a bounded image for a separately blurred, contrast-veiled player backdrop. */
+    suspend fun backdrop(track: LocalTrack, targetEdgePx: Int = 1_024): ImageBitmap? =
+        thumbnail(track, targetEdgePx.coerceIn(MIN_BACKDROP_EDGE, MAX_BACKDROP_EDGE))
+
     /** Invalidating one path invalidates nearby tracks too, covering shared folder/front images. */
     fun invalidate(path: Path) {
         val normalized = (normalizePath(path) ?: path.toAbsolutePath().normalize().toString()).lowercase(Locale.ROOT)
@@ -296,5 +300,7 @@ internal class LocalArtworkRepository(
     companion object {
         const val DEFAULT_MAX_DECODED_BYTES = 64L * 1024L * 1024L
         private const val BYTES_PER_PIXEL = 4L
+        private const val MIN_BACKDROP_EDGE = 128
+        private const val MAX_BACKDROP_EDGE = 1_024
     }
 }

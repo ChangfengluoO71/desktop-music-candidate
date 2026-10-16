@@ -1,6 +1,7 @@
 package com.qing.hachimi.desktop
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -26,6 +28,7 @@ import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -40,6 +43,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.decodeToImageBitmap
 import androidx.compose.ui.graphics.painter.BitmapPainter
@@ -47,6 +51,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogWindow
 import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.WindowPlacement
+import androidx.compose.ui.window.WindowState
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import kotlinx.coroutines.launch
@@ -56,6 +62,7 @@ import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
+import top.yukonga.miuix.kmp.basic.Slider
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.theme.ColorSchemeMode
@@ -63,7 +70,22 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.ThemeController
 import com.qing.hachimi.desktop.libmpv.LibMpvLibraryLocator
 import com.qing.hachimi.desktop.libmpv.LibMpvPlaybackEngine
+import com.qing.hachimi.desktop.update.GitHubReleaseClient
+import com.qing.hachimi.desktop.update.HandoffResult
+import com.qing.hachimi.desktop.update.InstallerHandoff
+import com.qing.hachimi.desktop.update.InstallerStager
+import com.qing.hachimi.desktop.update.PendingVersionStatus
+import com.qing.hachimi.desktop.update.UpdateDetailsDialog
+import com.qing.hachimi.desktop.update.UpdateFailureCategory
+import com.qing.hachimi.desktop.update.UpdateManager
+import com.qing.hachimi.desktop.update.UpdateState
+import com.qing.hachimi.desktop.update.UpdateStatusIndicator
+import com.qing.hachimi.desktop.update.UpdaterPreferences
+import com.qing.hachimi.desktop.update.UpdaterPreferencesStore
+import com.qing.hachimi.desktop.update.updateStatusDescription
+import java.nio.file.Path
 import java.util.Locale
+import kotlin.math.roundToInt
 
 fun main() = application {
     // Keep shutdown work alive for the full application composition. A scope created
@@ -74,17 +96,22 @@ fun main() = application {
         DesktopInstanceLock.tryAcquire(appDataDirectory.resolve("instance.lock"))
     }
     val artworkRepository = remember { LocalArtworkRepository() }
+    val installationDirectory = remember { desktopInstallationDirectory() }
     val viewModel = remember(instanceLock) {
         instanceLock?.let { DesktopViewModel.createDefault(appDataDirectory) }
     }
     val localMusicViewModel = remember(instanceLock) {
         instanceLock?.let { LocalMusicViewModel.createDefault(appDataDirectory, artworkRepository::invalidate) }
     }
-    val playbackEngine = remember(localMusicViewModel, appDataDirectory) {
+    val playbackEngine = remember(localMusicViewModel, appDataDirectory, installationDirectory) {
         localMusicViewModel?.let {
             runCatching {
                 LibMpvPlaybackEngine(
-                    LibMpvLibraryLocator.locate(System.getProperty("dmc.libmpv.path"), appDataDirectory),
+                    LibMpvLibraryLocator.locate(
+                        System.getProperty("dmc.libmpv.path"),
+                        appDataDirectory,
+                        installationDirectory,
+                    ),
                 )
             }.getOrElse { failure ->
                 UnavailablePlaybackEngine(
@@ -102,6 +129,48 @@ fun main() = application {
             )
         }
     }
+    val updaterPreferencesStore = remember(appDataDirectory) {
+        UpdaterPreferencesStore(appDataDirectory.resolve("updater-preferences.json"))
+    }
+    val initialUpdaterPreferences = remember(updaterPreferencesStore) { updaterPreferencesStore.load() }
+    val updaterNetworkFactory = remember(viewModel) {
+        DesktopNetworkClientFactory(viewModel?.settings?.value?.network ?: DesktopNetworkSettings())
+    }
+    val updateManager = remember(updaterNetworkFactory, initialUpdaterPreferences.etag, appDataDirectory) {
+        UpdateManager(
+            releaseProvider = GitHubReleaseClient(networkFactory = updaterNetworkFactory),
+            stager = InstallerStager(
+                stagingDirectory = appDataDirectory.resolve("updates"),
+                networkFactory = updaterNetworkFactory,
+            ),
+            initialEtag = initialUpdaterPreferences.etag,
+            initialRelease = initialUpdaterPreferences.cachedRelease?.takeIf { cached ->
+                SemVer.parse(BuildInfo.VERSION)?.let { installed -> cached.version > installed } == true
+            },
+            initialRetryAfterEpochMillis = initialUpdaterPreferences.retryAfterEpochMillis,
+        )
+    }
+    val installerHandoff = remember(
+        instanceLock,
+        viewModel,
+        localMusicViewModel,
+        playerViewModel,
+        updateManager,
+        updaterPreferencesStore,
+    ) {
+        InstallerHandoff(
+            stagingDirectory = appDataDirectory.resolve("updates"),
+            preferencesStore = updaterPreferencesStore,
+            shutdown = {
+                withContext(Dispatchers.IO) {
+                    viewModel?.shutdown()
+                    playerViewModel?.close()
+                    localMusicViewModel?.shutdown()
+                }
+                instanceLock?.close()
+            },
+        )
+    }
     val appIcon = remember {
         val iconBytes = requireNotNull(
             Thread.currentThread().contextClassLoader.getResourceAsStream("dmc-icon.png"),
@@ -111,6 +180,7 @@ fun main() = application {
     val exitApplicationNow: () -> Unit = { exitApplication() }
     var closeRequested by remember { mutableStateOf(false) }
     var closing by remember { mutableStateOf(false) }
+    val mainWindowState = rememberWindowState(width = 1280.dp, height = 820.dp)
 
     Window(
         icon = appIcon,
@@ -123,7 +193,7 @@ fun main() = application {
             }
         },
         title = DesktopProductIdentity.WINDOW_TITLE,
-        state = rememberWindowState(width = 1280.dp, height = 820.dp),
+        state = mainWindowState,
         resizable = true,
     ) {
         if (viewModel == null) {
@@ -132,7 +202,17 @@ fun main() = application {
                 exitApplicationNow()
             })
         } else {
-            HachimiDesktopApp(viewModel, localMusicViewModel, playerViewModel, artworkRepository)
+            HachimiDesktopApp(
+                viewModel,
+                localMusicViewModel,
+                playerViewModel,
+                artworkRepository,
+                mainWindowState,
+                updateManager,
+                updaterPreferencesStore,
+                installerHandoff,
+                exitApplicationNow,
+            )
         }
         if (closeRequested && viewModel != null) {
             DialogWindow(
@@ -161,9 +241,11 @@ fun main() = application {
                                             val playerShutdown = async { runCatching { playerViewModel?.close() } }
                                             val desktopShutdown = async { runCatching { viewModel.shutdown() } }
                                             val localMusicShutdown = async { runCatching { localMusicViewModel?.shutdown() } }
+                                            val updaterShutdown = async { runCatching { updateManager.close() } }
                                             playerShutdown.await()
                                             desktopShutdown.await()
                                             localMusicShutdown.await()
+                                            updaterShutdown.await()
                                         }
                                     } finally {
                                         runCatching { instanceLock?.close() }
@@ -199,25 +281,132 @@ private fun DuplicateInstanceScreen(onExit: () -> Unit) {
     }
 }
 
+private fun desktopInstallationDirectory(): Path? = ProcessHandle.current().info().command()
+    .orElse(null)
+    ?.let { executable ->
+        runCatching { Path.of(executable).toAbsolutePath().normalize().parent }.getOrNull()
+    }
+
 @Composable
 internal fun HachimiDesktopApp(
     viewModel: DesktopViewModel,
     localMusicViewModel: LocalMusicViewModel? = null,
     playerViewModel: PlayerViewModel? = null,
     artworkRepository: LocalArtworkRepository? = null,
+    windowState: WindowState? = null,
+    updateManager: UpdateManager? = null,
+    updaterPreferencesStore: UpdaterPreferencesStore? = null,
+    installerHandoff: InstallerHandoff? = null,
+    onExitAfterUpdate: () -> Unit = {},
 ) {
     val ui by viewModel.ui.collectAsState()
     val settings by viewModel.settings.collectAsState()
     val tasks by viewModel.tasks.collectAsState()
     val collectionImports by viewModel.collectionImports.collectAsState()
     val persistenceWarning by viewModel.persistenceWarning.collectAsState()
+    val updateState = updateManager?.state?.collectAsState()
+    var updateDetailsOpen by remember { mutableStateOf(false) }
+    var updateHandoffStarted by remember { mutableStateOf(false) }
+    var failedReadyPackage by remember { mutableStateOf<UpdateState.ReadyToInstall?>(null) }
+    var updaterPreferences by remember(updaterPreferencesStore) {
+        mutableStateOf(updaterPreferencesStore?.load() ?: UpdaterPreferences())
+    }
+    val pendingVersionStatus = remember(installerHandoff, updaterPreferencesStore) {
+        installerHandoff?.reconcileRunningVersion(BuildInfo.VERSION) ?: PendingVersionStatus.NONE
+    }
+    val updateScope = rememberCoroutineScope()
+    val persistUpdaterPreferences: (UpdaterPreferences) -> Unit = { updated ->
+        updaterPreferences = updated
+        runCatching { updaterPreferencesStore?.save(updated) }
+    }
+    val checkForUpdates: () -> Unit = {
+        updateManager?.let { manager ->
+            updateScope.launch {
+                manager.check(manual = true).join()
+                persistUpdaterPreferences(
+                    updaterPreferences.copy(
+                        lastCheckEpochMillis = System.currentTimeMillis(),
+                        etag = manager.cachedEtag,
+                        cachedRelease = manager.cachedRelease,
+                        retryAfterEpochMillis = manager.cachedRetryAfterEpochMillis,
+                    ),
+                )
+            }
+        }
+    }
+    LaunchedEffect(updateManager, updaterPreferencesStore) {
+        val manager = updateManager ?: return@LaunchedEffect
+        if (pendingVersionStatus == PendingVersionStatus.MISMATCH) {
+            manager.reportFailure(UpdateFailureCategory.VERSION_MISMATCH)
+            return@LaunchedEffect
+        }
+        val preferences = updaterPreferencesStore?.load() ?: updaterPreferences
+        val now = System.currentTimeMillis()
+        val checkedPreferences = if (now - preferences.lastCheckEpochMillis >= UPDATE_CHECK_INTERVAL_MS) {
+            manager.check(manual = false).join()
+            preferences.copy(
+                lastCheckEpochMillis = System.currentTimeMillis(),
+                etag = manager.cachedEtag,
+                cachedRelease = manager.cachedRelease,
+                retryAfterEpochMillis = manager.cachedRetryAfterEpochMillis,
+            ).also(persistUpdaterPreferences)
+        } else preferences
+        if (BuildInfo.CHANNEL.equals("preview", ignoreCase = true) &&
+            checkedPreferences.autoDownloadPreview && manager.state.value is UpdateState.Available
+        ) {
+            manager.download()
+        }
+    }
     val controller = remember { ThemeController(ColorSchemeMode.System) }
+    val immersiveWindowState = remember { ImmersiveWindowState() }
+    var immersive by remember { mutableStateOf(false) }
+    val enterImmersive = {
+        if (!immersive) {
+            windowState?.let { immersiveWindowState.enter(it.placement, it.size) }
+            immersive = true
+        }
+    }
+    val exitImmersive = {
+        immersiveWindowState.exit()?.let { saved ->
+            windowState?.placement = saved.placement
+            windowState?.size = saved.size
+        }
+        immersive = false
+    }
+    val toggleImmersiveFullscreen = {
+        val currentWindow = windowState
+        if (currentWindow != null) {
+            if (currentWindow.placement == WindowPlacement.Fullscreen) {
+                immersiveWindowState.savedPlacement()?.let { saved ->
+                    currentWindow.placement = saved.placement
+                    currentWindow.size = saved.size
+                }
+            } else {
+                currentWindow.placement = WindowPlacement.Fullscreen
+            }
+        }
+    }
     val sharedArtworkRepository = artworkRepository ?: remember { LocalArtworkRepository() }
     DisposableEffect(sharedArtworkRepository) {
         onDispose { sharedArtworkRepository.close() }
     }
 
     MiuixTheme(controller = controller) {
+        if (immersive && playerViewModel != null) {
+            ImmersivePlayerScreen(
+                viewModel = playerViewModel,
+                artworkRepository = sharedArtworkRepository,
+                layout = ImmersivePlayerLayout.COVER_AND_LYRICS,
+                reducedMotion = settings.reducedMotion,
+                backdropSource = settings.immersiveBackdropSource,
+                backdropMaterial = settings.immersiveBackdropMaterial,
+                backdropStrength = settings.immersiveBackdropStrength,
+                backdropImagePath = settings.immersiveBackdropImagePath,
+                backdropSolidColor = settings.immersiveBackdropSolidColor,
+                onExit = exitImmersive,
+                onToggleFullscreen = toggleImmersiveFullscreen,
+            )
+        } else {
         Row(
             Modifier.fillMaxSize()
                 .then(
@@ -279,6 +468,9 @@ internal fun HachimiDesktopApp(
                         },
                         style = MiuixTheme.textStyles.headline1,
                     )
+                    updateState?.value?.let { state ->
+                        UpdateStatusIndicator(state) { updateDetailsOpen = true }
+                    }
                     Spacer(Modifier.weight(1f))
                     Text("并发 ${settings.maxConcurrentDownloads} · ${tasks.count { it.status == DownloadTaskStatus.DOWNLOADING }} 个正在下载")
                 }
@@ -294,17 +486,85 @@ internal fun HachimiDesktopApp(
                         DesktopPage.DOWNLOADS -> DownloadsScreen(viewModel, tasks, collectionImports)
                         DesktopPage.LOCAL_MUSIC -> if (localMusicViewModel != null) LocalMusicScreen(localMusicViewModel, playerViewModel, sharedArtworkRepository)
                         else Text("本地音乐索引暂时不可用。")
-                        DesktopPage.NOW_PLAYING -> playerViewModel?.let { NowPlayingScreen(it, sharedArtworkRepository) }
+                        DesktopPage.NOW_PLAYING -> playerViewModel?.let {
+                            NowPlayingScreen(it, sharedArtworkRepository, onOpenImmersive = enterImmersive)
+                        }
                             ?: Text("本地播放器暂时不可用。")
-                        DesktopPage.SETTINGS -> SettingsScreen(viewModel, settings, ui.downloadDiagnosticsEnabled)
+                        DesktopPage.SETTINGS -> SettingsScreen(
+                            viewModel = viewModel,
+                            settings = settings,
+                            diagnosticsEnabled = ui.downloadDiagnosticsEnabled,
+                            updaterState = updateState?.value,
+                            autoDownloadPreview = updaterPreferences.autoDownloadPreview,
+                            onAutoDownloadPreviewChanged = { enabled ->
+                                persistUpdaterPreferences(updaterPreferences.copy(autoDownloadPreview = enabled))
+                            },
+                            onCheckForUpdates = checkForUpdates,
+                        )
                     }
                 }
                 playerViewModel?.let { player ->
-                    PlayerMiniBar(player, onOpenNowPlaying = { viewModel.navigate(DesktopPage.NOW_PLAYING) }, artworkRepository = sharedArtworkRepository)
+                    PlayerMiniBar(
+                        player,
+                        onOpenNowPlaying = { viewModel.navigate(DesktopPage.NOW_PLAYING) },
+                        artworkRepository = sharedArtworkRepository,
+                        onOpenImmersive = enterImmersive,
+                    )
                 }
             }
         }
         ui.artworkPreview?.let { ArtworkPreviewDialog(viewModel, it) }
+        }
+        if (updateDetailsOpen && updateManager != null && updateState != null) {
+            UpdateDetailsDialog(
+                state = updateState.value,
+                onDownload = { updateManager.download() },
+                onCancel = updateManager::cancelDownload,
+                onRetry = {
+                    val ready = failedReadyPackage
+                    val handoff = installerHandoff
+                    if (ready != null && handoff != null && !updateHandoffStarted) {
+                        updateHandoffStarted = true
+                        updateScope.launch {
+                            when (val result = handoff.start(ready.path, ready.release)) {
+                                HandoffResult.Started -> {
+                                    updateManager.close()
+                                    onExitAfterUpdate()
+                                }
+                                is HandoffResult.Failed -> {
+                                    updateManager.reportFailure(result.category)
+                                    updateHandoffStarted = false
+                                }
+                            }
+                        }
+                    } else {
+                        updateManager.retry()
+                    }
+                },
+                onInstall = {
+                    val ready = updateState.value as? UpdateState.ReadyToInstall
+                    val handoff = installerHandoff
+                    if (ready != null && handoff != null && !updateHandoffStarted) {
+                        updateHandoffStarted = true
+                        updateScope.launch {
+                            when (val result = handoff.start(ready.path, ready.release)) {
+                                HandoffResult.Started -> {
+                                    updateManager.close()
+                                    onExitAfterUpdate()
+                                }
+                                is HandoffResult.Failed -> {
+                                    failedReadyPackage = ready
+                                    updateManager.reportFailure(result.category)
+                                    updateHandoffStarted = false
+                                }
+                            }
+                        }
+                    }
+                },
+                onLater = { updateDetailsOpen = false },
+                onCheck = checkForUpdates,
+            )
+        }
     }
 }
 
@@ -1211,6 +1471,10 @@ internal fun SettingsScreen(
     viewModel: DesktopViewModel,
     settings: DesktopSettings,
     diagnosticsEnabled: Boolean,
+    updaterState: UpdateState? = null,
+    autoDownloadPreview: Boolean = true,
+    onAutoDownloadPreviewChanged: ((Boolean) -> Unit)? = null,
+    onCheckForUpdates: (() -> Unit)? = null,
 ) {
     var directory by remember(settings.defaultDownloadDirectory) {
         mutableStateOf(settings.defaultDownloadDirectory)
@@ -1234,6 +1498,12 @@ internal fun SettingsScreen(
     var proxyType by remember(settings.network.proxyType) { mutableStateOf(settings.network.proxyType) }
     var proxyHost by remember(settings.network.proxyHost) { mutableStateOf(settings.network.proxyHost) }
     var proxyPort by remember(settings.network.proxyPort) { mutableStateOf(settings.network.proxyPort.toString()) }
+    var reducedMotion by remember(settings.reducedMotion) { mutableStateOf(settings.reducedMotion) }
+    var backdropSource by remember(settings.immersiveBackdropSource) { mutableStateOf(settings.immersiveBackdropSource) }
+    var backdropMaterial by remember(settings.immersiveBackdropMaterial) { mutableStateOf(settings.immersiveBackdropMaterial) }
+    var backdropStrength by remember(settings.immersiveBackdropStrength) { mutableStateOf(settings.immersiveBackdropStrength) }
+    var backdropImagePath by remember(settings.immersiveBackdropImagePath) { mutableStateOf(settings.immersiveBackdropImagePath) }
+    var backdropSolidColor by remember(settings.immersiveBackdropSolidColor) { mutableStateOf(settings.immersiveBackdropSolidColor) }
     val networkSettings = DesktopNetworkSettings(
         mode = networkMode,
         proxyType = proxyType,
@@ -1242,22 +1512,161 @@ internal fun SettingsScreen(
             ?: if (networkMode == DesktopNetworkMode.CUSTOM_PROXY) 0 else 7890,
     )
     val networkValidationError = networkSettings.validationError()
+    val backdropColorValid = parseBackdropColor(backdropSolidColor) != null
+    val settingsDraft = if (
+        directory.isNotBlank() &&
+        (coverMode != CoverDirectoryMode.CUSTOM_DIRECTORY || customCoverDirectory.isNotBlank()) &&
+        networkValidationError == null && backdropColorValid
+    ) {
+        DesktopSettings(
+            defaultDownloadDirectory = directory.trim(),
+            maxConcurrentDownloads = concurrency,
+            defaultQuality = quality,
+            fileConflictPolicy = conflictPolicy,
+            folderGrouping = grouping,
+            downloadLyrics = downloadLyrics,
+            saveTranslatedLyrics = translatedLyrics,
+            saveRomanizedLyrics = romanizedLyrics,
+            saveWordLevelLyrics = wordLevelLyrics,
+            embedLyrics = embedLyrics,
+            writeAudioTags = writeTags,
+            embedCoverArt = embedCover,
+            coverDirectoryMode = coverMode,
+            customCoverDirectory = customCoverDirectory.trim(),
+            network = networkSettings,
+            audioOutputMode = settings.audioOutputMode,
+            reducedMotion = reducedMotion,
+            immersiveBackdropSource = backdropSource,
+            immersiveBackdropMaterial = backdropMaterial,
+            immersiveBackdropStrength = backdropStrength,
+            immersiveBackdropImagePath = backdropImagePath.trim().take(4_096),
+            immersiveBackdropSolidColor = backdropSolidColor.trim().uppercase(Locale.ROOT),
+        )
+    } else {
+        null
+    }
+    LaunchedEffect(settingsDraft) {
+        val draft = settingsDraft ?: return@LaunchedEffect
+        viewModel.saveSettings(draft)
+    }
+    val customBackdropReadable by produceState<Boolean?>(null, backdropSource, backdropImagePath) {
+        value = if (backdropSource == ImmersiveBackdropSource.CUSTOM_IMAGE && backdropImagePath.isNotBlank()) {
+            loadCustomBackdrop(backdropImagePath, 256) != null
+        } else {
+            null
+        }
+    }
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
+        Text(
+            if (settingsDraft == null) "有无效设置，修正后会自动保存。" else "设置会在修改后自动保存。",
+            color = if (settingsDraft == null) Color(0xFFFFC1B8) else MiuixTheme.colorScheme.primary,
+        )
+        Text("沉浸播放背景", style = MiuixTheme.textStyles.headline2)
+        Text("背景来源")
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ImmersiveBackdropSource.entries.forEach { source ->
+                Button(
+                    modifier = Modifier.testTag("backdrop-source-${source.name.lowercase(Locale.ROOT)}"),
+                    colors = if (backdropSource == source) ButtonDefaults.buttonColorsPrimary() else ButtonDefaults.buttonColors(),
+                    onClick = { backdropSource = source },
+                ) { Text(backdropSourceLabel(source)) }
+            }
+        }
+        if (backdropSource == ImmersiveBackdropSource.CUSTOM_IMAGE) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Button(
+                    modifier = Modifier.testTag("backdrop-choose-image"),
+                    onClick = { DesktopFilePicker.chooseBackdropImage()?.let { backdropImagePath = it.toString() } },
+                ) { Text("选择本地图片") }
+                Text(backdropImagePath.ifBlank { "支持 JPG、PNG、WebP；图片仅在本机加载" }, maxLines = 2)
+            }
+            val customBackdropFileExists = backdropImagePath.isNotBlank() && runCatching {
+                java.nio.file.Files.isRegularFile(Path.of(backdropImagePath))
+            }.getOrDefault(false)
+            if (backdropImagePath.isNotBlank() && !customBackdropFileExists) {
+                Text("找不到该图片，播放页会回退到当前专辑封面")
+            } else if (customBackdropReadable == false) {
+                Text("无法读取图片或格式不受支持，播放页会回退到当前专辑封面")
+            }
+        }
+        if (backdropSource == ImmersiveBackdropSource.SOLID_COLOR) {
+            TextField(
+                value = backdropSolidColor,
+                onValueChange = { backdropSolidColor = it.take(16) },
+                label = "颜色值（#RRGGBB）",
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth().testTag("backdrop-solid-color"),
+            )
+            if (!backdropColorValid) Text("请输入有效的 #RRGGBB 颜色值")
+        }
+        Text("背景材质")
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            ImmersiveBackdropMaterial.entries.forEach { material ->
+                val selected = backdropMaterial == material
+                Column(
+                    Modifier.width(190.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(Color(0xFF1A2029))
+                        .border(2.dp, if (selected) MiuixTheme.colorScheme.primary else Color.White.copy(alpha = 0.12f), RoundedCornerShape(14.dp))
+                        .clickable { backdropMaterial = material }
+                        .padding(10.dp)
+                        .testTag("backdrop-material-${material.name.lowercase(Locale.ROOT)}"),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Box(
+                        Modifier.fillMaxWidth().height(76.dp).clip(RoundedCornerShape(10.dp))
+                            .background(backdropPreviewBrush(material)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(if (selected) "✓" else "DMC", color = Color.White, style = MiuixTheme.textStyles.headline2)
+                    }
+                    Text(backdropMaterialLabel(material), color = Color.White)
+                    Text(backdropMaterialDescription(material), color = Color.White.copy(alpha = 0.68f), maxLines = 2)
+                }
+            }
+        }
+        Text("背景与清晰封面分开加载；材质会叠加对比度处理，确保歌词清晰。")
+        Text("材质强度")
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("弱")
+            Slider(
+                value = backdropStrength / 100f,
+                onValueChange = { backdropStrength = (it * 100f).roundToInt().coerceIn(0, 100) },
+                modifier = Modifier.weight(1f).height(28.dp).testTag("backdrop-strength"),
+                valueRange = 0f..1f,
+            )
+            Text("${backdropStrength}%")
+        }
+        Text("强度越低，背景越清晰明亮；强度越高，模糊、暗化和磨砂面板效果越明显。")
         Text("本地播放器", style = MiuixTheme.textStyles.headline2)
+        SettingToggle("减少动态效果", reducedMotion) { reducedMotion = it }
         Text("音频引擎：libmpv · Windows WASAPI 共享输出（固定）")
         Text("如果 libmpv 运行库或 Windows 音频设备不可用，播放器会显示错误，不会切换到其他后端。")
         Text("默认下载目录", style = MiuixTheme.textStyles.headline2)
-        TextField(
-            value = directory,
-            onValueChange = { directory = it },
-            label = "Windows 文件夹路径",
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TextField(
+                value = directory,
+                onValueChange = { directory = it },
+                label = "Windows 文件夹路径",
+                singleLine = true,
+                modifier = Modifier.weight(1f),
+            )
+            Button(
+                modifier = Modifier.testTag("download-directory-choose"),
+                onClick = {
+                    val currentDirectory = runCatching { java.nio.file.Path.of(directory.trim()) }.getOrNull()
+                    DesktopFilePicker.chooseDownloadDirectory(currentDirectory)?.let { directory = it.toString() }
+                },
+            ) { Text("选择目录") }
+        }
         Text("最大并发数", style = MiuixTheme.textStyles.headline2)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             (1..4).forEach { value ->
@@ -1386,37 +1795,23 @@ internal fun SettingsScreen(
             networkValidationError?.let { Text("代理设置无效：$it") }
         }
         Text("网络设置保存后需重启应用生效；当前已运行的请求会继续使用原路由。")
+        Text("应用更新", style = MiuixTheme.textStyles.headline2)
+        Text("版本 ${BuildInfo.VERSION} · ${if (BuildInfo.CHANNEL.equals("preview", true)) "Preview" else "Stable"}")
+        updaterState?.let { Text(updateStatusDescription(it)) }
+        onAutoDownloadPreviewChanged?.let { onChange ->
+            Button(
+                modifier = Modifier.testTag("update-auto-download-preview"),
+                colors = if (autoDownloadPreview) ButtonDefaults.buttonColorsPrimary() else ButtonDefaults.buttonColors(),
+                onClick = { onChange(!autoDownloadPreview) },
+            ) { Text("${if (autoDownloadPreview) "✓ " else ""}启用 Preview 版本自动下载") }
+            Text("发现更新后在后台下载，不会暂停播放；安装仍需你手动确认。")
+        }
+        onCheckForUpdates?.let { check ->
+            Button(modifier = Modifier.testTag("update-manual-check"), onClick = check) {
+                Text("检查更新")
+            }
+        }
         Button(onClick = viewModel::openDiagnosticsFile) { Text("打开诊断文件") }
-        Button(
-            modifier = Modifier.testTag("settings-save"),
-            colors = ButtonDefaults.buttonColorsPrimary(),
-            onClick = {
-                if (networkValidationError == null) {
-                    runCatching {
-                        viewModel.saveSettings(
-                            DesktopSettings(
-                                defaultDownloadDirectory = directory.trim(),
-                                maxConcurrentDownloads = concurrency,
-                                defaultQuality = quality,
-                                fileConflictPolicy = conflictPolicy,
-                                folderGrouping = grouping,
-                                downloadLyrics = downloadLyrics,
-                                saveTranslatedLyrics = translatedLyrics,
-                                saveRomanizedLyrics = romanizedLyrics,
-                                saveWordLevelLyrics = wordLevelLyrics,
-                                embedLyrics = embedLyrics,
-                                writeAudioTags = writeTags,
-                                embedCoverArt = embedCover,
-                                coverDirectoryMode = coverMode,
-                                customCoverDirectory = customCoverDirectory.trim(),
-                                network = networkSettings,
-                                audioOutputMode = settings.audioOutputMode,
-                            ),
-                        )
-                    }
-                }
-            },
-        ) { Text("保存设置") }
     }
 }
 
@@ -1426,6 +1821,30 @@ private fun SettingToggle(label: String, enabled: Boolean, onChange: (Boolean) -
         colors = if (enabled) ButtonDefaults.buttonColorsPrimary() else ButtonDefaults.buttonColors(),
         onClick = { onChange(!enabled) },
     ) { Text("${if (enabled) "✓ " else ""}$label") }
+}
+
+private fun backdropSourceLabel(source: ImmersiveBackdropSource) = when (source) {
+    ImmersiveBackdropSource.ALBUM_ART -> "当前专辑封面"
+    ImmersiveBackdropSource.CUSTOM_IMAGE -> "自定义图片"
+    ImmersiveBackdropSource.SOLID_COLOR -> "纯色舞台"
+}
+
+private fun backdropMaterialLabel(material: ImmersiveBackdropMaterial) = when (material) {
+    ImmersiveBackdropMaterial.SOFT_FOCUS -> "专辑雾化"
+    ImmersiveBackdropMaterial.ACRYLIC -> "磨砂亚克力"
+    ImmersiveBackdropMaterial.ALBUM_GRADIENT -> "专辑色彩渐层"
+}
+
+private fun backdropMaterialDescription(material: ImmersiveBackdropMaterial) = when (material) {
+    ImmersiveBackdropMaterial.SOFT_FOCUS -> "高柔焦，叠加暗色渐层"
+    ImmersiveBackdropMaterial.ACRYLIC -> "半透明面板与柔和高光"
+    ImmersiveBackdropMaterial.ALBUM_GRADIENT -> "提取专辑主色，画面更清爽"
+}
+
+private fun backdropPreviewBrush(material: ImmersiveBackdropMaterial) = when (material) {
+    ImmersiveBackdropMaterial.SOFT_FOCUS -> Brush.linearGradient(listOf(Color(0xFF293344), Color(0xFF6B3955), Color(0xFF151922)))
+    ImmersiveBackdropMaterial.ACRYLIC -> Brush.linearGradient(listOf(Color(0xFF365162), Color(0xFF68728D), Color(0xFF33394A)))
+    ImmersiveBackdropMaterial.ALBUM_GRADIENT -> Brush.linearGradient(listOf(Color(0xFF184B56), Color(0xFF573F74), Color(0xFF9B594C)))
 }
 
 private fun statusLabel(status: DownloadTaskStatus): String = when (status) {
@@ -1467,3 +1886,5 @@ private fun formatBytes(bytes: Long): String = when {
 
 private fun formatSpeed(bytesPerSecond: Long): String = if (bytesPerSecond <= 0L) "—" else
     "${formatBytes(bytesPerSecond)}/s"
+
+private const val UPDATE_CHECK_INTERVAL_MS = 24L * 60L * 60L * 1_000L

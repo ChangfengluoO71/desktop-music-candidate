@@ -8,6 +8,6 @@ object DesktopProductIdentity {
     const val CREDENTIAL_TARGET = "DesktopMusicCandidate.Session.MUSIC_U"
     const val DEFAULT_DOWNLOAD_FOLDER = "DesktopMusicCandidate"
     const val WINDOW_TITLE = DISPLAY_NAME
-    const val VERSION = "0.1.2"
+    const val VERSION = BuildInfo.VERSION
     const val USER_AGENT = "$INSTALLER_NAME/$VERSION"
 }

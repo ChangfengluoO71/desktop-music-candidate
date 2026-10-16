@@ -78,6 +78,38 @@ class PlayerKeyboardShortcutsTest {
         assertEquals("searc h", text.value, "The left-arrow editing key must reach the focused text input")
     }
 
+    @OptIn(ExperimentalTestApi::class)
+    @Test
+    fun `escape exits immersive view while root owns focus`() = runComposeUiTest {
+        var exits = 0
+        setContent {
+            Box(
+                Modifier.testTag("immersive-shortcut-root")
+                    .then(rememberImmersiveKeyboardShortcutModifier({}, { exits++ })),
+            )
+        }
+
+        onNodeWithTag("immersive-shortcut-root").performKeyInput { pressKey(Key.Escape) }
+
+        assertEquals(1, exits)
+    }
+
+    @OptIn(ExperimentalTestApi::class)
+    @Test
+    fun `escape is not intercepted while a text field owns focus`() = runComposeUiTest {
+        var exits = 0
+        val text = mutableStateOf("")
+        setContent {
+            Column(Modifier.then(rememberImmersiveKeyboardShortcutModifier({}, { exits++ }))) {
+                BasicTextField(value = text.value, onValueChange = { text.value = it }, modifier = Modifier.testTag("immersive-search"))
+            }
+        }
+
+        onNodeWithTag("immersive-search").performClick().performKeyInput { pressKey(Key.Escape) }
+
+        assertEquals(0, exits)
+    }
+
     @Composable
     private fun ShortcutSurface(onAction: (PlayerShortcutAction) -> Unit) {
         Box(

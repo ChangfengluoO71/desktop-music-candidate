@@ -162,6 +162,66 @@ class LocalArtworkRepositoryTest {
         }
     }
 
+    @Test
+    fun `backdrop defaults to a bounded 256 pixel edge and shares cache accounting`() = runBlocking {
+        val audio = audioFile("backdrop.mp3")
+        val calls = AtomicInteger()
+        val requestedEdge = AtomicInteger()
+        val repository = LocalArtworkRepository(
+            resolver = LocalArtworkResolver(embeddedArtworkReader = { calls.incrementAndGet(); png() }),
+            decoder = ArtworkThumbnailDecoder { _, edge -> requestedEdge.set(edge); ImageBitmap(edge, edge / 2) },
+        )
+        try {
+            val first = repository.backdrop(track(audio))
+            val bytesAfterFirst = repository.cachedDecodedBytes()
+            val second = repository.backdrop(track(audio))
+
+            assertEquals(256, requestedEdge.get())
+            assertEquals(256, first?.width)
+            assertEquals(256, second?.width)
+            assertTrue(bytesAfterFirst > 0)
+            assertEquals(bytesAfterFirst, repository.cachedDecodedBytes())
+            assertEquals(1, calls.get())
+        } finally {
+            repository.close()
+        }
+    }
+
+    @Test
+    fun `backdrop cache invalidates when source file identity changes`() = runBlocking {
+        val audio = audioFile("backdrop-identity.mp3")
+        val calls = AtomicInteger()
+        val repository = repository(audio, calls)
+        try {
+            assertEquals(1, repository.backdrop(track(audio))?.width)
+            Files.write(audio, byteArrayOf(1, 2, 3, 4))
+            Files.setLastModifiedTime(audio, FileTime.fromMillis(Files.getLastModifiedTime(audio).toMillis() + 5_000))
+
+            assertEquals(1, repository.backdrop(track(audio))?.width)
+            assertEquals(2, calls.get())
+        } finally {
+            repository.close()
+        }
+    }
+
+    @Test
+    fun `missing or corrupt artwork returns no backdrop`() = runBlocking {
+        val missing = audioFile("missing-backdrop.mp3")
+        val malformed = audioFile("malformed-backdrop.mp3")
+        val repository = LocalArtworkRepository(
+            resolver = LocalArtworkResolver(embeddedArtworkReader = { path ->
+                if (path.fileName.toString() == "malformed-backdrop.mp3") byteArrayOf(1, 2, 3) else null
+            }),
+            decoder = SafeArtworkThumbnailDecoder,
+        )
+        try {
+            assertNull(repository.backdrop(track(missing)))
+            assertNull(repository.backdrop(track(malformed)))
+        } finally {
+            repository.close()
+        }
+    }
+
     private fun repository(audio: Path, calls: AtomicInteger) = LocalArtworkRepository(
         resolver = LocalArtworkResolver(embeddedArtworkReader = { calls.incrementAndGet(); png() }),
         decoder = ArtworkThumbnailDecoder { _, _ -> ImageBitmap(1, 1) },

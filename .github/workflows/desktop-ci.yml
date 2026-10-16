@@ -5,13 +5,21 @@ on:
   pull_request:
   workflow_dispatch:
     inputs:
-      preview_version:
+      release_version:
         description: "Windows package version (numeric major.minor.patch)"
         required: true
         type: string
-        default: "0.0.1"
-      publish_preview:
-        description: "Publish this build as a GitHub prerelease"
+        default: "0.1.2"
+      update_channel:
+        description: "Update channel embedded in the application"
+        required: true
+        type: choice
+        options:
+          - stable
+          - preview
+        default: stable
+      publish_release:
+        description: "Publish this build as a GitHub release"
         required: true
         type: boolean
         default: false
@@ -69,36 +77,55 @@ jobs:
 
       - name: Build app image with bundled runtime
         env:
-          PREVIEW_VERSION: ${{ inputs.preview_version }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          UPDATE_CHANNEL: ${{ inputs.update_channel }}
         run: |
-          if ($env:PREVIEW_VERSION -notmatch '^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$') {
+          if ($env:RELEASE_VERSION -notmatch '^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$') {
             throw 'Version must be numeric major.minor.patch, for example 0.0.1.'
           }
-          .\gradlew.bat --no-daemon "-PreleaseVersion=$env:PREVIEW_VERSION" createDistributable
+          .\gradlew.bat --no-daemon "-PreleaseVersion=$env:RELEASE_VERSION" "-PupdateChannel=$env:UPDATE_CHANNEL" createDistributable
+
+      - name: Assert Gradle, generated metadata, and release tag version
+        env:
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          UPDATE_CHANNEL: ${{ inputs.update_channel }}
+        run: |
+          $buildInfoPath = ".\build\generated\sources\buildInfo\kotlin\com\qing\hachimi\desktop\BuildInfo.kt"
+          if (-not (Test-Path $buildInfoPath)) { throw 'Generated BuildInfo.kt is missing.' }
+          $buildInfo = Get-Content $buildInfoPath -Raw
+          $versionMatch = [regex]::Match($buildInfo, 'const val VERSION: String = "([^"]+)"')
+          $channelMatch = [regex]::Match($buildInfo, 'const val CHANNEL: String = "([^"]+)"')
+          $commitMatch = [regex]::Match($buildInfo, 'const val COMMIT: String = "([^"]+)"')
+          if (-not $versionMatch.Success -or $versionMatch.Groups[1].Value -ne $env:RELEASE_VERSION) { throw 'Gradle and BuildInfo versions differ.' }
+          if (-not $channelMatch.Success -or $channelMatch.Groups[1].Value -ne $env:UPDATE_CHANNEL) { throw 'BuildInfo update channel differs from the selected release channel.' }
+          if (-not $commitMatch.Success -or $commitMatch.Groups[1].Value -ne $env:GITHUB_SHA) { throw 'BuildInfo commit does not match the checked out source commit.' }
+          $releaseTag = "v$env:RELEASE_VERSION"
+          if ($releaseTag -ne "v$($versionMatch.Groups[1].Value)") { throw 'Release tag and application version differ.' }
 
       - name: Install Inno Setup 6
         run: choco install innosetup --yes --no-progress
 
       - name: Compile and smoke-test installer
         env:
-          PREVIEW_VERSION: ${{ inputs.preview_version }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
         run: |
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "installer\setup.iss" "/DMyAppVersion=$env:PREVIEW_VERSION"
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "installer\setup.iss" "/DMyAppVersion=$env:RELEASE_VERSION"
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed with exit code $LASTEXITCODE." }
-          $installer = ".\build\installer\DesktopMusicCandidate-$env:PREVIEW_VERSION-Setup.exe"
+          $installer = ".\build\installer\DesktopMusicCandidate-$env:RELEASE_VERSION-Setup.exe"
+          if (-not (Test-Path $installer)) { throw 'Inno Setup did not produce the installer with the requested version.' }
           .\scripts\smoke-test-windows-installer.ps1 -InstallerPath $installer
 
       - name: Upload short-lived installer artifact
         uses: actions/upload-artifact@v7
         with:
-          name: desktop-music-candidate-inno-setup-v${{ inputs.preview_version }}-${{ github.sha }}
+          name: desktop-music-candidate-inno-setup-v${{ inputs.release_version }}-${{ github.sha }}
           path: build/installer/*.exe
           if-no-files-found: error
           retention-days: 7
 
-  publish-preview:
-    name: Publish GitHub preview release
-    if: github.event_name == 'workflow_dispatch' && inputs.publish_preview
+  publish-release:
+    name: Publish GitHub release
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_release
     needs: installer
     runs-on: windows-latest
     permissions:
@@ -112,15 +139,16 @@ jobs:
       - name: Download installer artifact
         uses: actions/download-artifact@v8
         with:
-          name: desktop-music-candidate-inno-setup-v${{ inputs.preview_version }}-${{ github.sha }}
+          name: desktop-music-candidate-inno-setup-v${{ inputs.release_version }}-${{ github.sha }}
           path: release-assets
 
-      - name: Publish prerelease and attach installer
+      - name: Publish stable release or preview and attach installer
         env:
           GH_TOKEN: ${{ github.token }}
-          PREVIEW_VERSION: ${{ inputs.preview_version }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          UPDATE_CHANNEL: ${{ inputs.update_channel }}
         run: |
-          $tag = "v$env:PREVIEW_VERSION"
+          $tag = "v$env:RELEASE_VERSION"
           $existingTag = git ls-remote --exit-code origin "refs/tags/$tag" 2>$null
           if ($LASTEXITCODE -eq 0) {
             throw "Tag $tag already exists; refusing to replace a published version."
@@ -132,4 +160,12 @@ jobs:
           if (-not $installer) {
             throw 'Installer artifact is missing.'
           }
-          gh release create $tag $installer.FullName --repo $env:GITHUB_REPOSITORY --title "Desktop Music Candidate $tag (Preview)" --notes "Windows preview installer built with Inno Setup 6. The installer includes the Java runtime, lets you select the install directory, creates Start Menu and optional desktop shortcuts, and provides an uninstaller. Installation requires administrator approval. The application is an early preview and is not a stable version." --prerelease --latest=false --target $env:GITHUB_SHA
+          if ($env:UPDATE_CHANNEL -eq 'stable') {
+            $title = "DMC $tag"
+            $notes = "Official stable DMC release. The Windows installer is built with Inno Setup 6 and includes the Java runtime, selectable installation directory, Start Menu shortcuts, and uninstaller."
+            gh release create $tag $installer.FullName --repo $env:GITHUB_REPOSITORY --title $title --notes $notes --target $env:GITHUB_SHA
+          } else {
+            $title = "DMC $tag (Preview)"
+            $notes = "DMC preview installer built with Inno Setup 6. This release may contain incomplete features and is intended for evaluation."
+            gh release create $tag $installer.FullName --repo $env:GITHUB_REPOSITORY --title $title --notes $notes --prerelease --latest=false --target $env:GITHUB_SHA
+          }

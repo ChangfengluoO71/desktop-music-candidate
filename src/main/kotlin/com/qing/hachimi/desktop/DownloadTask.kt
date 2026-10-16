@@ -72,6 +72,12 @@ data class DesktopSettings(
     val customCoverDirectory: String = "",
     val network: DesktopNetworkSettings = DesktopNetworkSettings(),
     val audioOutputMode: AudioOutputMode = AudioOutputMode.SHARED,
+    val reducedMotion: Boolean = false,
+    val immersiveBackdropSource: ImmersiveBackdropSource = ImmersiveBackdropSource.ALBUM_ART,
+    val immersiveBackdropMaterial: ImmersiveBackdropMaterial = ImmersiveBackdropMaterial.SOFT_FOCUS,
+    val immersiveBackdropStrength: Int = 50,
+    val immersiveBackdropImagePath: String = "",
+    val immersiveBackdropSolidColor: String = "#111820",
 ) {
     init {
         require(maxConcurrentDownloads in 1..8) { "并发数必须在 1 到 8 之间" }
@@ -79,6 +85,7 @@ data class DesktopSettings(
             "不支持的默认音质"
         }
         require(defaultDownloadDirectory.isNotBlank()) { "下载目录不能为空" }
+        require(immersiveBackdropStrength in 0..100) { "背景材质强度必须在 0 到 100 之间" }
     }
 
     init {

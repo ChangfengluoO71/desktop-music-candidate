@@ -176,6 +176,17 @@ class DownloadTaskStore(private val file: Path) {
         audioOutputMode = runCatching {
             AudioOutputMode.valueOf(optString("audioOutputMode", AudioOutputMode.SHARED.name))
         }.getOrDefault(AudioOutputMode.SHARED),
+        reducedMotion = optBoolean("reducedMotion", false),
+        immersiveBackdropSource = runCatching {
+            ImmersiveBackdropSource.valueOf(optString("immersiveBackdropSource", ImmersiveBackdropSource.ALBUM_ART.name))
+        }.getOrDefault(ImmersiveBackdropSource.ALBUM_ART),
+        immersiveBackdropMaterial = runCatching {
+            ImmersiveBackdropMaterial.valueOf(optString("immersiveBackdropMaterial", ImmersiveBackdropMaterial.SOFT_FOCUS.name))
+        }.getOrDefault(ImmersiveBackdropMaterial.SOFT_FOCUS),
+        immersiveBackdropStrength = optInt("immersiveBackdropStrength", 50).coerceIn(0, 100),
+        immersiveBackdropImagePath = optString("immersiveBackdropImagePath", "").take(4_096),
+        immersiveBackdropSolidColor = optString("immersiveBackdropSolidColor", "#111820")
+            .takeIf { parseBackdropColor(it) != null } ?: "#111820",
     )
 
     private fun JSONObject.readNetworkSettings(): DesktopNetworkSettings {
@@ -233,6 +244,12 @@ class DownloadTaskStore(private val file: Path) {
             .put("coverDirectoryMode", coverDirectoryMode.name)
             .put("customCoverDirectory", customCoverDirectory)
             .put("audioOutputMode", audioOutputMode.name)
+            .put("reducedMotion", reducedMotion)
+            .put("immersiveBackdropSource", immersiveBackdropSource.name)
+            .put("immersiveBackdropMaterial", immersiveBackdropMaterial.name)
+            .put("immersiveBackdropStrength", immersiveBackdropStrength.coerceIn(0, 100))
+            .put("immersiveBackdropImagePath", immersiveBackdropImagePath.take(4_096))
+            .put("immersiveBackdropSolidColor", parseBackdropColor(immersiveBackdropSolidColor)?.let { immersiveBackdropSolidColor } ?: "#111820")
             .put("network", JSONObject()
                 .put("mode", network.mode.name)
                 .put("proxyType", network.proxyType.name)

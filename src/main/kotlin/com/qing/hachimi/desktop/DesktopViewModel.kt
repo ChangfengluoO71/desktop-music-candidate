@@ -1078,14 +1078,14 @@ class DesktopViewModel(
         }
     }
 
-    fun saveSettings(settings: DesktopSettings) {
-        scope.launch {
-            try {
-                taskManager.updateSettings(settings)
-                mutableUi.update { it.copy(requestedQuality = settings.defaultQuality, actionMessage = "设置已保存。") }
-            } catch (_: Exception) {
-                mutableUi.update { it.copy(actionMessage = "设置无效，未能保存。") }
-            }
+    suspend fun saveSettings(settings: DesktopSettings) {
+        try {
+            taskManager.updateSettings(settings)
+            mutableUi.update { it.copy(requestedQuality = settings.defaultQuality, actionMessage = "设置已自动保存。") }
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            mutableUi.update { it.copy(actionMessage = "设置无效，未能保存。") }
         }
     }
 

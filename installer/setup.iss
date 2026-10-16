@@ -1,6 +1,6 @@
 ﻿#define MyAppName "Desktop Music Candidate"
 #ifndef MyAppVersion
-#define MyAppVersion "0.0.1"
+#define MyAppVersion "0.1.2"
 #endif
 #ifndef OutputBaseFilename
 #define OutputBaseFilename "DesktopMusicCandidate-" + MyAppVersion + "-Setup"
@@ -40,6 +40,10 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 
 [Files]
 Source: "{#MySourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+#ifdef IncludeLocalMpv
+; Local acceptance only. CI/release packages omit this private development runtime unless explicitly opted in.
+Source: "..\build\local-libmpv\*"; DestDir: "{app}\libmpv"; Flags: ignoreversion recursesubdirs createallsubdirs
+#endif
 Source: "..\LICENSE"; DestDir: "{app}\licenses"; Flags: ignoreversion
 Source: "..\THIRD_PARTY.md"; DestDir: "{app}\licenses"; Flags: ignoreversion
 Source: "..\LICENSES\*"; DestDir: "{app}\licenses"; Flags: ignoreversion recursesubdirs createallsubdirs

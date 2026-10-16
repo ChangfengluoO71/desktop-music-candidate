@@ -8,29 +8,45 @@ class LibMpvUnavailableException(
     cause: Throwable? = null,
 ) : IllegalStateException(userMessage, cause)
 
-/** Resolves libmpv only from an explicit absolute override or the application's private data folder. */
+/** Resolves libmpv only from an explicit override or a private app-data/install folder. */
 object LibMpvLibraryLocator {
     const val DLL_NAME = "libmpv-2.dll"
     const val APP_PRIVATE_SUBDIRECTORY = "libmpv"
 
-    fun locate(explicitLibraryPath: String?, appDataDirectory: Path): Path {
+    fun locate(
+        explicitLibraryPath: String?,
+        appDataDirectory: Path,
+        installationDirectory: Path? = null,
+    ): Path {
         val configuredPath = explicitLibraryPath?.takeIf(String::isNotBlank)
         if (configuredPath != null) return resolveExplicit(configuredPath)
 
-        val privateDirectory = appDataDirectory.toAbsolutePath().normalize().resolve(APP_PRIVATE_SUBDIRECTORY)
-        val candidate = privateDirectory.resolve(DLL_NAME)
-        if (!Files.isRegularFile(candidate)) {
+        val privateRoots = listOfNotNull(appDataDirectory, installationDirectory)
+            .map { it.toAbsolutePath().normalize() }
+            .distinct()
+        for (privateRoot in privateRoots) {
+            resolvePrivateCandidate(privateRoot)?.let { return it }
+        }
+        if (privateRoots.isNotEmpty()) {
             throw LibMpvUnavailableException(
-                "$DLL_NAME was not found. Install the local libmpv runtime in the application's private libmpv folder to enable playback.",
+                "$DLL_NAME was not found in the user's app-data or installed-app private libmpv folder. Install the local runtime in a private libmpv folder to enable playback.",
             )
         }
+        throw LibMpvUnavailableException(
+            "$DLL_NAME was not found. Install the local libmpv runtime in the application's private libmpv folder to enable playback.",
+        )
+    }
 
+    private fun resolvePrivateCandidate(privateRoot: Path): Path? {
+        val privateDirectory = privateRoot.resolve(APP_PRIVATE_SUBDIRECTORY)
+        val candidate = privateDirectory.resolve(DLL_NAME)
+        if (!Files.isRegularFile(candidate)) return null
         return try {
-            val canonicalAppData = appDataDirectory.toAbsolutePath().normalize().toRealPath()
+            val canonicalRoot = privateRoot.toRealPath()
             val canonicalDirectory = privateDirectory.toRealPath()
             val canonicalFile = candidate.toRealPath()
-            require(canonicalDirectory.startsWith(canonicalAppData)) {
-                "The app-private libmpv folder resolves outside application data."
+            require(canonicalDirectory.startsWith(canonicalRoot)) {
+                "The app-private libmpv folder resolves outside its private root."
             }
             require(canonicalFile.startsWith(canonicalDirectory)) {
                 "The app-private libmpv path resolves outside its protected folder."

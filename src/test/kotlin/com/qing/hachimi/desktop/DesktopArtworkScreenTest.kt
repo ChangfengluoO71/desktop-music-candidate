@@ -18,6 +18,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 
 class DesktopArtworkScreenTest {
     @OptIn(ExperimentalTestApi::class)
@@ -104,6 +105,34 @@ class DesktopArtworkScreenTest {
             }
             assertEquals(CoverDirectoryMode.CUSTOM_DIRECTORY, harness.viewModel.settings.value.coverDirectoryMode)
             assertEquals(custom, harness.viewModel.settings.value.customCoverDirectory)
+        } finally {
+            harness.close()
+        }
+    }
+
+    @OptIn(ExperimentalTestApi::class)
+    @Test
+    fun `settings can check updates and toggle preview auto download`() = runComposeUiTest {
+        val root = Files.createTempDirectory("dmc-updater-settings")
+        val harness = createHarness(DesktopSettings(defaultDownloadDirectory = root.toString()))
+        var automaticDownload = true
+        var manualChecks = 0
+        try {
+            setContent {
+                SettingsScreen(
+                    viewModel = harness.viewModel,
+                    settings = harness.viewModel.settings.value,
+                    diagnosticsEnabled = false,
+                    onAutoDownloadPreviewChanged = { automaticDownload = it },
+                    onCheckForUpdates = { manualChecks += 1 },
+                )
+            }
+
+            onNodeWithTag("update-manual-check").performScrollTo().performClick()
+            onNodeWithTag("update-auto-download-preview").performScrollTo().performClick()
+
+            assertEquals(1, manualChecks)
+            assertFalse(automaticDownload)
         } finally {
             harness.close()
         }

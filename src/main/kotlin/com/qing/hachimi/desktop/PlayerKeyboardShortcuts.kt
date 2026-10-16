@@ -36,6 +36,29 @@ internal fun rememberPlayerKeyboardShortcutModifier(onAction: (PlayerShortcutAct
         .focusable()
 }
 
+@Composable
+internal fun rememberImmersiveKeyboardShortcutModifier(
+    onAction: (PlayerShortcutAction) -> Unit,
+    onExit: () -> Unit,
+): Modifier {
+    val focusRequester = remember { FocusRequester() }
+    var rootOwnsFocus by remember { mutableStateOf(false) }
+    LaunchedEffect(focusRequester) { focusRequester.requestFocus() }
+    return Modifier
+        .focusRequester(focusRequester)
+        .onFocusChanged { rootOwnsFocus = it.isFocused }
+        .onKeyEvent { event ->
+            if (rootOwnsFocus && event.type == KeyEventType.KeyDown && event.key == Key.Escape) {
+                onExit()
+                true
+            } else {
+                false
+            }
+        }
+        .playerKeyboardShortcuts(onAction) { rootOwnsFocus }
+        .focusable()
+}
+
 internal enum class PlayerShortcutAction {
     TOGGLE_PLAYBACK,
     SEEK_BACKWARD,

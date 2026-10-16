@@ -71,15 +71,18 @@ class PlayerScreensTest {
             ioDispatcher = Dispatchers.IO,
             mainDispatcher = Dispatchers.Default,
         )
+        var immersiveEntries = 0
         try {
             setContent {
                 MiuixTheme(controller = ThemeController(ColorSchemeMode.System)) {
-                    NowPlayingScreen(viewModel)
+                    NowPlayingScreen(viewModel, onOpenImmersive = { immersiveEntries++ })
                 }
             }
 
             onNodeWithTag("now-playing-screen").assertIsDisplayed()
             onNodeWithTag("now-playing-lyrics-panel").assertIsDisplayed()
+            onNodeWithTag("now-playing-open-immersive").performClick()
+            assertEquals(1, immersiveEntries)
             onNodeWithTag("now-playing-toggle-queue").performClick()
             onNodeWithTag("player-queue-empty").assertIsDisplayed()
         } finally {
@@ -105,6 +108,7 @@ class PlayerScreensTest {
         )
         var toggles = 0
         var opens = 0
+        var immersiveEntries = 0
         setContent {
             MiuixTheme(controller = ThemeController(ColorSchemeMode.System)) {
                 PlayerMiniBarContent(
@@ -114,6 +118,7 @@ class PlayerScreensTest {
                     onTogglePlayback = { toggles++ },
                     onNext = {},
                     onSeek = {},
+                    onOpenImmersive = { immersiveEntries++ },
                 )
             }
         }
@@ -122,8 +127,10 @@ class PlayerScreensTest {
         onNodeWithText("A Local Song").assertIsDisplayed()
         onNodeWithTag("player-toggle").assertIsEnabled().performClick()
         onNodeWithTag("player-open-now-playing").performClick()
+        onNodeWithTag("player-open-immersive").performClick()
         assertEquals(1, toggles)
         assertEquals(1, opens)
+        assertEquals(1, immersiveEntries)
     }
 
     @OptIn(ExperimentalTestApi::class)
@@ -170,6 +177,102 @@ class PlayerScreensTest {
 
         onNodeWithTag("queue-move-up-${first.id}").assertIsNotEnabled()
         onNodeWithTag("queue-move-down-${second.id}").assertIsNotEnabled()
+    }
+
+    @OptIn(ExperimentalTestApi::class)
+    @Test
+    fun `immersive player presents artwork fallback, aligned lyric layers, controls and layout action`() = runComposeUiTest {
+        val track = testTrack()
+        val state = PlayerUiState(
+            playback = PlaybackState(
+                queue = listOf(track),
+                queueIndex = 0,
+                currentTrack = track,
+                durationMillis = 10_000,
+                volume = 0.7f,
+            ),
+            lyrics = LocalLyricsBundle(
+                original = listOf(TimedLyricLine(2_000, "Original phrase")),
+                translation = listOf(TimedLyricLine(2_100, "Translated phrase")),
+                romanization = listOf(TimedLyricLine(1_900, "Romanized phrase")),
+            ),
+        )
+        var requestedSeek: Long? = null
+        var toggles = 0
+        var exits = 0
+        var selectedLayout: ImmersivePlayerLayout? = null
+        setContent {
+            MiuixTheme(controller = ThemeController(ColorSchemeMode.System)) {
+                ImmersivePlayerContent(
+                    state = state,
+                    artworkRepository = null,
+                    layout = ImmersivePlayerLayout.COVER_AND_LYRICS,
+                    reducedMotion = true,
+                    onExit = { exits++ },
+                    onLayoutChange = { selectedLayout = it },
+                    onPrevious = {},
+                    onTogglePlayback = { toggles++ },
+                    onNext = {},
+                    onSeek = { requestedSeek = it },
+                    onSetShuffle = {},
+                    onSetRepeatMode = {},
+                    onSetVolume = {},
+                    onPlayQueueIndex = {},
+                    onMoveQueueItem = { _, _ -> },
+                    onRemoveQueueItem = {},
+                    onClearQueue = {},
+                    onSelectLyricVariant = {},
+                )
+            }
+        }
+
+        onNodeWithTag("immersive-player").assertIsDisplayed()
+        onNodeWithTag("immersive-artwork-fallback").assertIsDisplayed()
+        onNodeWithText("Original phrase").assertIsDisplayed()
+        onNodeWithText("Translated phrase").assertIsDisplayed()
+        onNodeWithText("Romanized phrase").assertIsDisplayed()
+        onNodeWithTag("immersive-lyric-0").performClick()
+        onNodeWithTag("immersive-play-pause").performClick()
+        onNodeWithTag("immersive-layout-lyrics-first").performClick()
+        onNodeWithTag("immersive-exit").performClick()
+        assertEquals(2_000L, requestedSeek)
+        assertEquals(1, toggles)
+        assertEquals(1, exits)
+        assertEquals(ImmersivePlayerLayout.LYRICS_FIRST, selectedLayout)
+    }
+
+    @OptIn(ExperimentalTestApi::class)
+    @Test
+    fun `immersive queue panel opens and closes without leaving the player`() = runComposeUiTest {
+        setContent {
+            MiuixTheme(controller = ThemeController(ColorSchemeMode.System)) {
+                ImmersivePlayerContent(
+                    state = PlayerUiState(),
+                    artworkRepository = null,
+                    layout = ImmersivePlayerLayout.LYRICS_FIRST,
+                    reducedMotion = true,
+                    onExit = {},
+                    onLayoutChange = {},
+                    onPrevious = {},
+                    onTogglePlayback = {},
+                    onNext = {},
+                    onSeek = {},
+                    onSetShuffle = {},
+                    onSetRepeatMode = {},
+                    onSetVolume = {},
+                    onPlayQueueIndex = {},
+                    onMoveQueueItem = { _, _ -> },
+                    onRemoveQueueItem = {},
+                    onClearQueue = {},
+                    onSelectLyricVariant = {},
+                )
+            }
+        }
+
+        onNodeWithTag("immersive-queue-toggle").performClick()
+        onNodeWithTag("player-queue-empty").assertIsDisplayed()
+        onNodeWithTag("immersive-queue-toggle").performClick()
+        onNodeWithTag("immersive-lyrics").assertIsDisplayed()
     }
 
     @OptIn(ExperimentalTestApi::class)

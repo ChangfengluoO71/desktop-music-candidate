@@ -96,6 +96,18 @@ class DownloadTaskStoreTest {
     }
 
     @Test
+    fun `reduced motion preference defaults off and round trips`() {
+        val root = Files.createTempDirectory("dmc-reduced-motion")
+        val file = root.resolve("tasks.json")
+        val store = DownloadTaskStore(file)
+
+        assertEquals(false, store.load().settings.reducedMotion)
+        store.save(emptyList(), DesktopSettings(defaultDownloadDirectory = root.toString(), reducedMotion = true))
+
+        assertEquals(true, store.load().settings.reducedMotion)
+    }
+
+    @Test
     fun `malformed task record is skipped while valid records load`() {
         val root = Files.createTempDirectory("hachimi-task-store")
         val path = root.resolve("tasks.json")

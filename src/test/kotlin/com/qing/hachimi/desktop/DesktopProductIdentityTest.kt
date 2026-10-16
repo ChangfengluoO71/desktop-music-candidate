@@ -2,6 +2,8 @@ package com.qing.hachimi.desktop
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 import java.nio.file.Path
 
 class DesktopProductIdentityTest {
@@ -16,6 +18,10 @@ class DesktopProductIdentityTest {
         )
         assertEquals("DesktopMusicCandidate", DesktopProductIdentity.DEFAULT_DOWNLOAD_FOLDER)
         assertEquals("Desktop Music Candidate", DesktopProductIdentity.WINDOW_TITLE)
+        assertEquals(BuildInfo.VERSION, DesktopProductIdentity.VERSION)
+        assertTrue(BuildInfo.CHANNEL in setOf("preview", "stable"))
+        assertTrue(BuildInfo.COMMIT.isNotBlank())
+        assertNotNull(SemVer.parse(DesktopProductIdentity.VERSION))
         assertEquals(DesktopProductIdentity.DATA_DIRECTORY, desktopAppDataDirectory().fileName.toString())
         assertEquals(
             DesktopProductIdentity.DEFAULT_DOWNLOAD_FOLDER,
