@@ -9,7 +9,7 @@ on:
         description: "Windows package version (numeric major.minor.patch)"
         required: true
         type: string
-        default: "0.0.2"
+        default: "0.0.3"
       update_channel:
         description: "Update channel embedded in the application"
         required: true
@@ -327,7 +327,7 @@ jobs:
           }
           if ($env:UPDATE_CHANNEL -eq 'stable') {
             $title = "DMC $tag"
-            $notes = "Official stable DMC release. The Windows Inno Setup installer includes a pinned LGPL libmpv runtime, its corresponding source archive and license notices, the Java runtime, selectable installation directory, Start Menu shortcuts, and uninstaller. SHA256SUMS.txt contains hashes for release assets."
+            $notes = "DMC 0.0.3 adds separate GitHub release-check and installer-download mirror settings. Both default to a direct GitHub connection; bundled presets and HTTPS custom templates are available in Settings. This update also improves updater retry/cooldown recovery. The Windows Inno Setup installer includes a pinned LGPL libmpv runtime, its corresponding source archive and license notices, the Java runtime, selectable installation directory, Start Menu shortcuts, and uninstaller. SHA256SUMS.txt contains hashes for release assets."
             gh release create $tag $installer.FullName 'release-assets\libmpv-corresponding-source.tar.gz' 'release-assets\libmpv-runtime-manifest.json' 'release-assets\SHA256SUMS.txt' --repo $env:GITHUB_REPOSITORY --title $title --notes $notes --target $env:GITHUB_SHA
           } else {
             $title = "DMC $tag (Preview)"

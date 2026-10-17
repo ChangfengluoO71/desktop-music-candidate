@@ -9,6 +9,8 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeUp
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.v2.runComposeUiTest
 import kotlinx.coroutines.CompletableDeferred
@@ -134,6 +136,52 @@ class DesktopArtworkScreenTest {
 
             assertEquals(1, manualChecks)
             assertFalse(automaticDownload)
+        } finally {
+            harness.close()
+        }
+    }
+
+    @OptIn(ExperimentalTestApi::class)
+    @Test
+    fun `update check and installer mirrors save independently`() = runComposeUiTest {
+        val root = Files.createTempDirectory("dmc-updater-mirror-settings")
+        val harness = createHarness(DesktopSettings(defaultDownloadDirectory = root.toString()))
+        val savedMirrors = mutableListOf<Pair<String?, String?>>()
+        try {
+            setContent {
+                SettingsScreen(
+                    viewModel = harness.viewModel,
+                    settings = harness.viewModel.settings.value,
+                    diagnosticsEnabled = false,
+                    onUpdateMirrorTemplatesChanged = { check, installer ->
+                        savedMirrors += check to installer
+                    },
+                )
+            }
+
+            repeat(20) {
+                onNodeWithTag("settings-screen-scroll").performTouchInput { swipeUp() }
+            }
+            onNodeWithTag("update-check-mirror-gh-proxy-com")
+                .assertIsDisplayed()
+                .assertIsEnabled()
+                .performClick()
+            assertEquals("https://gh-proxy.com/{url}", savedMirrors.lastOrNull()?.first)
+            repeat(2) {
+                onNodeWithTag("settings-screen-scroll").performTouchInput { swipeUp() }
+            }
+            onNodeWithTag("update-installer-mirror-ghfast-top").assertIsDisplayed().performClick()
+
+            assertEquals("https://gh-proxy.com/{url}", savedMirrors.lastOrNull()?.first)
+            assertEquals("https://ghfast.top/{url}", savedMirrors.lastOrNull()?.second)
+            onNodeWithTag("update-check-mirror-template").assertIsDisplayed()
+            onNodeWithTag("update-installer-mirror-template").assertIsDisplayed()
+
+            onNodeWithTag("update-installer-mirror-direct").performScrollTo().performClick()
+            onNodeWithTag("update-installer-mirror-template")
+                .performTextInput("https://mirror.example/{url}")
+            assertEquals("https://gh-proxy.com/{url}", savedMirrors.lastOrNull()?.first)
+            assertEquals("https://mirror.example/{url}", savedMirrors.lastOrNull()?.second)
         } finally {
             harness.close()
         }

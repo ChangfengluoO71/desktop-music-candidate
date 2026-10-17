@@ -30,12 +30,16 @@ internal class GitHubReleaseClient(
     private val channel: UpdateChannel = UpdateChannel.valueOf(BuildInfo.CHANNEL.uppercase(Locale.ROOT)),
     private val releasesEndpoint: HttpUrl = RELEASES_ENDPOINT,
     private val networkFactory: DesktopNetworkClientFactory = DesktopNetworkClientFactory(DesktopNetworkSettings()),
+    private val checkMirrorTemplateProvider: () -> String? = { null },
 ) : ReleaseProvider {
     suspend fun check(): ReleaseCheckResult = check(null)
 
     override suspend fun check(etag: String?): ReleaseCheckResult = withContext(Dispatchers.IO) {
+        val originalRequestUrl = releasesEndpoint.newBuilder().addQueryParameter("per_page", "100").build()
+        val requestUrl = requestUrl(originalRequestUrl)
+            ?: return@withContext ReleaseCheckResult.Failed(ReleaseCheckFailure.INVALID_METADATA)
         val request = Request.Builder()
-            .url(releasesEndpoint.newBuilder().addQueryParameter("per_page", "100").build())
+            .url(requestUrl)
             .header("Accept", "application/vnd.github+json")
             .header("X-GitHub-Api-Version", GITHUB_API_VERSION)
             .header("User-Agent", DesktopProductIdentity.USER_AGENT)
@@ -44,13 +48,19 @@ internal class GitHubReleaseClient(
             .build()
 
         try {
-            networkFactory.clientFor(client, releasesEndpoint.toUri()).newCall(request).execute().use { response ->
+            networkFactory.clientFor(client, requestUrl.toUri()).newCall(request).execute().use { response ->
                 val responseEtag = response.header("ETag")?.takeIf(::isSafeEtag)
                 when {
                     response.code == 304 -> ReleaseCheckResult.NotModified(responseEtag ?: etag)
                     response.code == 429 || (response.code == 403 && isRateLimited(response)) -> ReleaseCheckResult.Failed(
                         category = ReleaseCheckFailure.RATE_LIMITED,
                         retryAfterEpochMillis = retryAfterEpochMillis(response.header("Retry-After"), response.header("X-RateLimit-Reset")),
+                        rateLimitKind = when {
+                            response.header("X-RateLimit-Remaining") == "0" -> UpdateRateLimitKind.PRIMARY_API_QUOTA
+                            response.code == 429 -> UpdateRateLimitKind.TOO_MANY_REQUESTS
+                            response.header("Retry-After") != null -> UpdateRateLimitKind.RETRY_AFTER
+                            else -> UpdateRateLimitKind.UNKNOWN
+                        },
                     )
                     !response.isSuccessful -> ReleaseCheckResult.Failed(ReleaseCheckFailure.HTTP_ERROR)
                     else -> {
@@ -139,6 +149,14 @@ internal class GitHubReleaseClient(
         )
     }
 
+    private fun requestUrl(original: HttpUrl): HttpUrl? {
+        val configuredTemplate = runCatching(checkMirrorTemplateProvider).getOrElse { return null }
+            ?.takeIf(String::isNotBlank)
+            ?: return original
+        val mirror = UpdateMirrorTemplate.parse(configuredTemplate) ?: return null
+        return runCatching { mirror.route(original, UpdateMirrorUse.RELEASE_CHECK) }.getOrNull()
+    }
+
     private fun isExpectedInstallerUrl(url: HttpUrl, tag: String, assetName: String): Boolean {
         val expectedPath = "/$REPOSITORY_OWNER/$REPOSITORY_NAME/releases/download/$tag/$assetName"
         return url.scheme == "https" &&
@@ -165,10 +183,20 @@ internal class GitHubReleaseClient(
 
     private fun retryAfterEpochMillis(retryAfter: String?, rateLimitReset: String?): Long? {
         val now = System.currentTimeMillis()
-        val seconds = retryAfter?.trim()?.toLongOrNull()
-            ?: rateLimitReset?.trim()?.toLongOrNull()?.let { (it * 1_000L - now).coerceAtLeast(0L) / 1_000L }
-            ?: return null
-        return now + seconds.coerceIn(1L, MAX_RETRY_AFTER_SECONDS) * 1_000L
+        val retryDelayMillis = retryAfter?.trim()?.let { value ->
+            value.toLongOrNull()?.let { seconds ->
+                seconds.coerceIn(1L, MAX_RETRY_AFTER_SECONDS) * 1_000L
+            } ?: runCatching {
+                val retryAt = java.time.ZonedDateTime.parse(value, java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME)
+                    .toInstant()
+                    .toEpochMilli()
+                (retryAt - now).coerceIn(1_000L, MAX_RETRY_AFTER_SECONDS * 1_000L)
+            }.getOrNull()
+        }
+        val resetDelayMillis = rateLimitReset?.trim()?.toLongOrNull()?.let { resetEpochSeconds ->
+            (resetEpochSeconds - now / 1_000L).coerceIn(1L, MAX_RETRY_AFTER_SECONDS) * 1_000L
+        }
+        return now + (retryDelayMillis ?: resetDelayMillis ?: return null)
     }
 
     private fun isSafeEtag(value: String): Boolean =

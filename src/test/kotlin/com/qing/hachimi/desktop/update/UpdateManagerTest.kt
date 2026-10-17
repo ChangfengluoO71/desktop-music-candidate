@@ -128,6 +128,29 @@ class UpdateManagerTest {
     }
 
     @Test
+    fun `manual checks are throttled after a recent GitHub request`() = runBlocking {
+        var now = 1_000_000L
+        val provider = FakeProvider(ReleaseCheckResult.UpToDate(null))
+        val manager = UpdateManager(
+            provider,
+            FakeStager(tempDir.resolve("installer.exe")),
+            nowEpochMillis = { now },
+        )
+        try {
+            manager.check(manual = true).join()
+            now += 1_000L
+            manager.check(manual = true).join()
+
+            assertEquals(1, provider.calls.get())
+            val failed = assertIs<UpdateState.Failed>(manager.state.value)
+            assertEquals(UpdateFailureCategory.CHECK_COOLDOWN, failed.category)
+            assertEquals(1_300_000L, failed.retryAfterEpochMillis)
+        } finally {
+            manager.close()
+        }
+    }
+
+    @Test
     fun `not modified keeps a cached available release after restart`() = runBlocking {
         val release = release()
         val provider = FakeProvider(ReleaseCheckResult.NotModified("etag-1"))

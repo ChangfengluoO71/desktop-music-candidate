@@ -23,7 +23,11 @@ internal sealed interface UpdateState {
     data class Downloading(val release: UpdateRelease, val bytesReceived: Long, val totalBytes: Long) : UpdateState
     data class Verifying(val release: UpdateRelease) : UpdateState
     data class ReadyToInstall(val release: UpdateRelease, val path: Path) : UpdateState
-    data class Failed(val category: UpdateFailureCategory, val retryAfterEpochMillis: Long? = null) : UpdateState
+    data class Failed(
+        val category: UpdateFailureCategory,
+        val retryAfterEpochMillis: Long? = null,
+        val rateLimitKind: UpdateRateLimitKind? = null,
+    ) : UpdateState
 }
 
 /** Isolated background update work; failures never escape into playback or the shell. */
@@ -33,7 +37,10 @@ internal class UpdateManager(
     initialEtag: String? = null,
     initialRelease: UpdateRelease? = null,
     initialRetryAfterEpochMillis: Long? = null,
+    initialLastCheckEpochMillis: Long = 0L,
+    initialRateLimitKind: UpdateRateLimitKind? = null,
     private val nowEpochMillis: () -> Long = System::currentTimeMillis,
+    private val minimumCheckIntervalMillis: Long = DEFAULT_MINIMUM_CHECK_INTERVAL_MS,
 ) : AutoCloseable {
     private val lock = Any()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -43,12 +50,16 @@ internal class UpdateManager(
     @Volatile private var etag: String? = initialEtag
     @Volatile private var latestRelease: UpdateRelease? = initialRelease
     @Volatile private var retryNotBefore: Long? = initialRetryAfterEpochMillis
+    @Volatile private var lastCheckEpochMillis: Long = initialLastCheckEpochMillis.coerceAtLeast(0L)
+    @Volatile private var rateLimitKind: UpdateRateLimitKind? = initialRateLimitKind
     @Volatile private var activeCheck: Job? = null
     @Volatile private var activeDownload: Job? = null
 
     val cachedEtag: String? get() = etag
     val cachedRelease: UpdateRelease? get() = latestRelease
     val cachedRetryAfterEpochMillis: Long? get() = retryNotBefore
+    val cachedLastCheckEpochMillis: Long get() = lastCheckEpochMillis
+    val cachedRateLimitKind: UpdateRateLimitKind? get() = rateLimitKind
 
     fun reportFailure(category: UpdateFailureCategory) {
         mutableState.value = UpdateState.Failed(category)
@@ -59,13 +70,23 @@ internal class UpdateManager(
         activeDownload?.takeIf(Job::isActive)?.let { return@synchronized it }
         val retryAt = retryNotBefore
         if (retryAt != null && nowEpochMillis() < retryAt) {
-            mutableState.value = UpdateState.Failed(UpdateFailureCategory.RATE_LIMITED, retryAt)
+            mutableState.value = UpdateState.Failed(UpdateFailureCategory.RATE_LIMITED, retryAt, rateLimitKind)
             val retryJob = scope.launch(start = CoroutineStart.LAZY) { }
             retryJob.start()
             return@synchronized retryJob
         }
 
+        val now = nowEpochMillis()
+        val localCooldownUntil = lastCheckEpochMillis + minimumCheckIntervalMillis
+        if (lastCheckEpochMillis > 0L && now < localCooldownUntil) {
+            mutableState.value = UpdateState.Failed(UpdateFailureCategory.CHECK_COOLDOWN, localCooldownUntil)
+            val cooldownJob = scope.launch(start = CoroutineStart.LAZY) { }
+            cooldownJob.start()
+            return@synchronized cooldownJob
+        }
+
         mutableState.value = UpdateState.Checking(manual)
+        lastCheckEpochMillis = now
         val job = scope.launch(start = CoroutineStart.LAZY) {
             try {
                 when (val result = releaseProvider.check(etag)) {
@@ -73,16 +94,20 @@ internal class UpdateManager(
                         etag = result.etag ?: etag
                         latestRelease = result.release
                         retryNotBefore = null
+                        rateLimitKind = null
                         mutableState.value = UpdateState.Available(result.release)
                     }
                     is ReleaseCheckResult.UpToDate -> {
                         etag = result.etag ?: etag
                         latestRelease = null
                         retryNotBefore = null
+                        rateLimitKind = null
                         mutableState.value = UpdateState.UpToDate
                     }
                     is ReleaseCheckResult.NotModified -> {
                         etag = result.etag ?: etag
+                        retryNotBefore = null
+                        rateLimitKind = null
                         mutableState.value = latestRelease?.let(UpdateState::Available) ?: UpdateState.UpToDate
                     }
                     is ReleaseCheckResult.Failed -> {
@@ -91,7 +116,12 @@ internal class UpdateManager(
                                 ?: (nowEpochMillis() + DEFAULT_RATE_LIMIT_BACKOFF_MS)
                         } else null
                         retryNotBefore = retryAt
-                        mutableState.value = UpdateState.Failed(result.category.toUpdateFailureCategory(), retryAt)
+                        rateLimitKind = result.rateLimitKind
+                        mutableState.value = UpdateState.Failed(
+                            result.category.toUpdateFailureCategory(),
+                            retryAt,
+                            rateLimitKind,
+                        )
                     }
                 }
             } catch (cancelled: CancellationException) {
@@ -173,10 +203,13 @@ internal class UpdateManager(
     }
 
     fun retry(): Job = when (val current = mutableState.value) {
-        is UpdateState.Failed -> when {
-            current.category == UpdateFailureCategory.RATE_LIMITED -> check(manual = true)
-            latestRelease != null -> download()
-            else -> check(manual = true)
+        is UpdateState.Failed -> when (current.category) {
+            UpdateFailureCategory.RATE_LIMITED,
+            UpdateFailureCategory.CHECK_COOLDOWN -> check(manual = true)
+            else -> when {
+                latestRelease != null -> download()
+                else -> check(manual = true)
+            }
         }
         else -> download()
     }
@@ -198,6 +231,7 @@ internal class UpdateManager(
 
     private companion object {
         const val DEFAULT_RATE_LIMIT_BACKOFF_MS = 60 * 60 * 1_000L
+        const val DEFAULT_MINIMUM_CHECK_INTERVAL_MS = 5 * 60 * 1_000L
         const val PROGRESS_UPDATE_INTERVAL_NANOS = 200_000_000L
     }
 }

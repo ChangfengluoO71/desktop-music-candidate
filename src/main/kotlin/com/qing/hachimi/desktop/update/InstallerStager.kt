@@ -51,6 +51,7 @@ internal class InstallerStager(
     private val client: OkHttpClient = defaultClient(),
     private val networkFactory: DesktopNetworkClientFactory = DesktopNetworkClientFactory(DesktopNetworkSettings()),
     private val allowedRedirectHosts: Set<String> = GITHUB_ASSET_HOSTS,
+    private val downloadMirrorTemplateProvider: () -> String? = { null },
 ) : InstallerPackageStager {
     override suspend fun stage(
         asset: InstallerAsset,
@@ -81,6 +82,17 @@ internal class InstallerStager(
         onVerifying: () -> Unit,
     ): Path {
         val expected = validatedAsset(asset)
+        val configuredTemplate = runCatching(downloadMirrorTemplateProvider).getOrElse {
+            throw InstallerStagingException(UpdateFailureCategory.INVALID_METADATA)
+        }
+        val mirrorTemplate = if (configuredTemplate.isNullOrBlank()) null else {
+            UpdateMirrorTemplate.parse(configuredTemplate)
+                ?: throw InstallerStagingException(UpdateFailureCategory.INVALID_METADATA)
+        }
+        val initialRequestUrl = mirrorTemplate?.let { mirror ->
+            runCatching { mirror.route(expected.initialUrl, UpdateMirrorUse.INSTALLER_DOWNLOAD) }
+                .getOrElse { throw InstallerStagingException(UpdateFailureCategory.INVALID_METADATA) }
+        } ?: expected.initialUrl
         val directory = stagingDirectory.toAbsolutePath().normalize()
         val target = directory.resolve(expected.name).normalize()
         val part = directory.resolve("${expected.name}.part").normalize()
@@ -112,13 +124,13 @@ internal class InstallerStager(
         var committed = false
         return try {
             val digest = MessageDigest.getInstance("SHA-256")
-            var currentUrl = asset.url
+            var currentUrl = initialRequestUrl
             var redirects = 0
             var received = 0L
             FileChannel.open(part, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE).use { output ->
                 while (true) {
                     currentCoroutineContext().ensureActive()
-                    validateRedirectTarget(currentUrl, expected.sourcePath, expected.initialUrl)
+                    validateRedirectTarget(currentUrl, expected.sourcePath, initialRequestUrl, mirrorTemplate?.host)
                     val request = Request.Builder()
                         .url(currentUrl)
                         .header("Accept", "application/octet-stream")
@@ -174,7 +186,7 @@ internal class InstallerStager(
                             }
                     }
                     if (redirectUrl != null) {
-                        validateRedirectTarget(redirectUrl, expected.sourcePath, expected.initialUrl)
+                        validateRedirectTarget(redirectUrl, expected.sourcePath, initialRequestUrl, mirrorTemplate?.host)
                         currentUrl = redirectUrl
                         continue
                     }
@@ -224,16 +236,24 @@ internal class InstallerStager(
         return ValidatedAsset(asset.name, asset.size, asset.sha256.lowercase(Locale.ROOT), sourcePath, url)
     }
 
-    private fun validateRedirectTarget(url: HttpUrl, sourcePath: String, initialUrl: HttpUrl) {
+    private fun validateRedirectTarget(
+        url: HttpUrl,
+        sourcePath: String,
+        initialRequestUrl: HttpUrl,
+        mirrorHost: String?,
+    ) {
         val host = url.host.lowercase(Locale.ROOT)
-        val allowed = allowedRedirectHosts.any { it.equals(host, ignoreCase = true) }
-        if (url.scheme != "https" || url.port != 443 || !allowed ||
+        val isMirrorHost = mirrorHost?.equals(host, ignoreCase = true) == true
+        val allowed = isMirrorHost || allowedRedirectHosts.any { it.equals(host, ignoreCase = true) }
+        val expectedPort = if (isMirrorHost) initialRequestUrl.port else 443
+        if (url.scheme != "https" || url.port != expectedPort || !allowed ||
             url.username.isNotEmpty() || url.password.isNotEmpty() || url.fragment != null ||
+            (isMirrorHost && url.encodedPath != initialRequestUrl.encodedPath) ||
             (host == "github.com" && (url.encodedPath != sourcePath || url.querySize != 0))
         ) {
             throw InstallerStagingException(UpdateFailureCategory.REDIRECT_POLICY_REJECTED)
         }
-        if (url.host == "github.com" && initialUrl.host != "github.com") {
+        if (host == "github.com" && mirrorHost != null) {
             throw InstallerStagingException(UpdateFailureCategory.REDIRECT_POLICY_REJECTED)
         }
     }

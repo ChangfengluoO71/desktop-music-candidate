@@ -41,6 +41,7 @@ internal enum class UpdateFailureCategory {
     TIMEOUT,
     HTTP_ERROR,
     RATE_LIMITED,
+    CHECK_COOLDOWN,
     INVALID_RESPONSE,
     INVALID_METADATA,
     MISSING_INSTALLER_ASSET,
@@ -56,6 +57,13 @@ internal enum class UpdateFailureCategory {
     VERSION_MISMATCH,
 }
 
+internal enum class UpdateRateLimitKind {
+    PRIMARY_API_QUOTA,
+    RETRY_AFTER,
+    TOO_MANY_REQUESTS,
+    UNKNOWN,
+}
+
 internal sealed interface ReleaseCheckResult {
     data class UpdateAvailable(val release: UpdateRelease, val etag: String?) : ReleaseCheckResult
     data class UpToDate(val etag: String?) : ReleaseCheckResult
@@ -65,5 +73,6 @@ internal sealed interface ReleaseCheckResult {
         val retryAfterEpochMillis: Long? = null,
         /** Kept null by design: remote response bodies and URLs are never exposed as failure text. */
         val message: String? = null,
+        val rateLimitKind: UpdateRateLimitKind? = null,
     ) : ReleaseCheckResult
 }

@@ -16,6 +16,9 @@ internal data class UpdaterPreferences(
     val pendingVersion: String? = null,
     val cachedRelease: UpdateRelease? = null,
     val retryAfterEpochMillis: Long? = null,
+    val rateLimitKind: UpdateRateLimitKind? = null,
+    val checkMirrorTemplate: String? = null,
+    val installerMirrorTemplate: String? = null,
 )
 
 /** Small independent per-user file; update metadata never shares the music task JSON. */
@@ -33,6 +36,11 @@ internal class UpdaterPreferencesStore(private val file: Path) {
             pendingVersion = pending,
             cachedRelease = cachedRelease,
             retryAfterEpochMillis = json.optLong("retryAfterEpochMillis", -1L).takeIf { it >= 0L },
+            rateLimitKind = json.optString("rateLimitKind")
+                .takeIf(String::isNotBlank)
+                ?.let { runCatching { UpdateRateLimitKind.valueOf(it) }.getOrNull() },
+            checkMirrorTemplate = normalizeMirrorTemplate(json.optString("checkMirrorTemplate")),
+            installerMirrorTemplate = normalizeMirrorTemplate(json.optString("installerMirrorTemplate")),
         )
     }.getOrDefault(UpdaterPreferences())
 
@@ -43,6 +51,8 @@ internal class UpdaterPreferencesStore(private val file: Path) {
             etag = preferences.etag?.takeIf { it.length <= MAX_ETAG_CHARS && isSafe(it) },
             pendingVersion = preferences.pendingVersion?.takeIf { it.length <= MAX_VERSION_CHARS },
             cachedRelease = preferences.cachedRelease?.takeIf { parseCachedRelease(it.toJson()) != null },
+            checkMirrorTemplate = normalizeMirrorTemplate(preferences.checkMirrorTemplate),
+            installerMirrorTemplate = normalizeMirrorTemplate(preferences.installerMirrorTemplate),
         )
         val absolute = file.toAbsolutePath().normalize()
         val parent = requireNotNull(absolute.parent)
@@ -54,7 +64,10 @@ internal class UpdaterPreferencesStore(private val file: Path) {
             .put("etag", normalized.etag)
             .put("pendingVersion", normalized.pendingVersion)
             .put("retryAfterEpochMillis", normalized.retryAfterEpochMillis)
+            .put("rateLimitKind", normalized.rateLimitKind?.name)
             .put("cachedRelease", normalized.cachedRelease?.toJson())
+            .put("checkMirrorTemplate", normalized.checkMirrorTemplate)
+            .put("installerMirrorTemplate", normalized.installerMirrorTemplate)
         try {
             Files.writeString(
                 temporary,
@@ -74,6 +87,11 @@ internal class UpdaterPreferencesStore(private val file: Path) {
     }
 
     private fun isSafe(value: String): Boolean = value.none { it == '\r' || it == '\n' || it.code < 0x20 }
+
+    private fun normalizeMirrorTemplate(value: String?): String? = value
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() && it.length <= MAX_MIRROR_TEMPLATE_CHARS && isSafe(it) }
+        ?.let { UpdateMirrorTemplate.parse(it)?.value }
 
     private fun parseCachedRelease(json: JSONObject): UpdateRelease? = runCatching {
         val version = SemVer.parse(json.getString("version")) ?: return null
@@ -112,9 +130,10 @@ internal class UpdaterPreferencesStore(private val file: Path) {
     private companion object {
         const val MAX_ETAG_CHARS = 512
         const val MAX_VERSION_CHARS = 128
+        const val MAX_MIRROR_TEMPLATE_CHARS = 2_048
         const val MAX_NOTES_CHARS = 20_000
         const val MAX_PACKAGE_BYTES = 1_500_000_000L
-        const val REPOSITORY_OWNER = "ChangfengluO71"
+        const val REPOSITORY_OWNER = "ChangfengluoO71"
         const val REPOSITORY_NAME = "desktop-music-candidate"
         val SHA256_PATTERN = Regex("^[0-9a-fA-F]{64}$")
     }

@@ -30,6 +30,37 @@ import kotlin.test.assertTrue
 
 class InstallerStagerTest {
     @Test
+    fun `installer can be fetched through a selected HTTPS mirror`() = withServer { server, root ->
+        val payload = "verified installer through mirror".encodeToByteArray()
+        server.payload = payload
+
+        val staged = stager(server, root, downloadMirrorTemplate = "https://ghfast.top/{url}").stage(asset(payload))
+
+        assertEquals(root.resolve("updates/DesktopMusicCandidate-1.3.0-Setup.exe"), staged)
+        assertEquals(
+            "/https://github.com/ChangfengluoO71/desktop-music-candidate/releases/download/v1.3.0/DesktopMusicCandidate-1.3.0-Setup.exe",
+            server.lastRequestPath,
+        )
+        assertEquals(sha256(payload), sha256(Files.readAllBytes(staged)))
+    }
+
+    @Test
+    fun `mirror redirects remain limited to the exact mirror and official asset hosts`() = withServer { server, root ->
+        val payload = "installer".encodeToByteArray()
+        server.payload = payload
+        server.redirectFirstTo = "https://evil.invalid/installer.exe"
+
+        val failure = runCatching {
+            stager(server, root, downloadMirrorTemplate = "https://ghfast.top/{url}").stage(asset(payload))
+        }.exceptionOrNull()
+
+        assertEquals(
+            UpdateFailureCategory.REDIRECT_POLICY_REJECTED,
+            assertIs<InstallerStagingException>(failure).category,
+        )
+    }
+
+    @Test
     fun `verified HTTPS bytes become the fixed staged installer with progress`() = withServer { server, root ->
         val payload = "verified preview installer".encodeToByteArray()
         server.payload = payload
@@ -175,8 +206,16 @@ class InstallerStagerTest {
         assertFalse(Files.exists(root.resolve("updates/DesktopMusicCandidate-1.3.0-Setup.exe.part")))
     }
 
-    private fun stager(server: LocalHttpsServer, root: Path, client: OkHttpClient = server.client()) =
-        InstallerStager(root.resolve("updates"), client)
+    private fun stager(
+        server: LocalHttpsServer,
+        root: Path,
+        client: OkHttpClient = server.client(),
+        downloadMirrorTemplate: String? = null,
+    ) = InstallerStager(
+        stagingDirectory = root.resolve("updates"),
+        client = client,
+        downloadMirrorTemplateProvider = { downloadMirrorTemplate },
+    )
 
     private fun asset(bytes: ByteArray) = InstallerAsset(
         name = "DesktopMusicCandidate-1.3.0-Setup.exe",
@@ -209,6 +248,7 @@ class InstallerStagerTest {
         }
         val port: Int get() = server.address.port
         val requestHeaders = mutableListOf<Map<String, String?>>()
+        var lastRequestPath: String? = null
         var payload: ByteArray = byteArrayOf()
         var redirectFirstTo: String? = null
         var chunkDelayMillis: Long = 0
@@ -247,6 +287,7 @@ class InstallerStagerTest {
         private fun handle(exchange: HttpExchange) {
             requestEntered.countDown()
             requestHeaders += listOf("Cookie", "Authorization").associateWith(exchange.requestHeaders::getFirst)
+            lastRequestPath = exchange.requestURI.rawPath
             requests += 1
             val redirect = redirectFirstTo
             if (requests == 1 && redirect != null) {

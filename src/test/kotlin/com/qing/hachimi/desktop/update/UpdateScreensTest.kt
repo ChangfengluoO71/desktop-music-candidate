@@ -2,9 +2,13 @@ package com.qing.hachimi.desktop.update
 
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.test.v2.runComposeUiTest
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
@@ -16,9 +20,67 @@ import top.yukonga.miuix.kmp.theme.ColorSchemeMode
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.ThemeController
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class UpdateScreensTest {
+    @OptIn(ExperimentalTestApi::class)
+    @Test
+    fun `update details surface paints an opaque theme background`() = runComposeUiTest {
+        var expectedBackground = Color.Unspecified
+        setContent {
+            MiuixTheme(controller = androidx.compose.runtime.remember { ThemeController(ColorSchemeMode.System) }) {
+                expectedBackground = MiuixTheme.colorScheme.background
+                UpdateDetailsContent(
+                    state = UpdateState.Failed(UpdateFailureCategory.RATE_LIMITED),
+                    onDownload = {},
+                    onCancel = {},
+                    onRetry = {},
+                    onInstall = {},
+                    onLater = {},
+                    onCheck = {},
+                )
+            }
+        }
+
+        val surface = onNodeWithTag("update-details-surface").captureToImage()
+        assertEquals(expectedBackground, surface.toPixelMap()[surface.width / 2, 4])
+    }
+
+    @Test
+    fun `rate limit description shows the server supplied retry time`() {
+        val retryAt = java.time.Instant.parse("2026-10-17T12:34:00Z").toEpochMilli()
+        val description = updateStatusDescription(UpdateState.Failed(UpdateFailureCategory.RATE_LIMITED, retryAt))
+
+        val localRetryTime = java.time.format.DateTimeFormatter.ofPattern("HH:mm")
+            .withZone(java.time.ZoneId.systemDefault())
+            .format(java.time.Instant.ofEpochMilli(retryAt))
+        assertTrue(description.contains(localRetryTime))
+        assertTrue(description.contains("GitHub"))
+    }
+
+    @OptIn(ExperimentalTestApi::class)
+    @Test
+    fun `retry remains disabled until the stored cooldown ends`() = runComposeUiTest {
+        val retryAt = System.currentTimeMillis() + 60_000L
+        setContent {
+            MiuixTheme(controller = androidx.compose.runtime.remember { ThemeController(ColorSchemeMode.System) }) {
+                UpdateDetailsContent(
+                    state = UpdateState.Failed(UpdateFailureCategory.RATE_LIMITED, retryAt),
+                    onDownload = {},
+                    onCancel = {},
+                    onRetry = {},
+                    onInstall = {},
+                    onLater = {},
+                    onCheck = {},
+                )
+            }
+        }
+
+        onNodeWithTag("update-retry").assertIsNotEnabled()
+        onNodeWithText("重试（", substring = true).assertIsDisplayed()
+    }
+
     @OptIn(ExperimentalTestApi::class)
     @Test
     fun `download status stays compact and opens details without changing host content`() = runComposeUiTest {

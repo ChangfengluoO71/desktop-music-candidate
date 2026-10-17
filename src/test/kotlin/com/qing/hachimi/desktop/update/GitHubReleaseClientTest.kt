@@ -58,6 +58,30 @@ class GitHubReleaseClientTest {
     }
 
     @Test
+    fun `release metadata check can use the configured HTTPS mirror`() = withServer { server ->
+        server.respondWith(releases(release("1.3.0")))
+        var routedUrl: HttpUrl? = null
+        val httpClient = OkHttpClient.Builder().addInterceptor { chain ->
+            val request = chain.request()
+            routedUrl = request.url
+            chain.proceed(request.newBuilder().url(server.endpoint).build())
+        }.build()
+        val provider = GitHubReleaseClient(
+            client = httpClient,
+            currentVersion = requireNotNull(SemVer.parse("1.2.0")),
+            channel = UpdateChannel.STABLE,
+            checkMirrorTemplateProvider = { "https://gh-proxy.com/{url}" },
+        )
+
+        val result = provider.check()
+
+        assertEquals("1.3.0", assertIs<ReleaseCheckResult.UpdateAvailable>(result).release.version.toString())
+        assertEquals("gh-proxy.com", routedUrl?.host)
+        assertEquals("/https://api.github.com/repos/ChangfengluoO71/desktop-music-candidate/releases", routedUrl?.encodedPath)
+        assertEquals("100", routedUrl?.queryParameter("per_page"))
+    }
+
+    @Test
     fun `draft releases are ignored`() = withServer { server ->
         server.respondWith(releases(release("9.0.0", draft = true)))
 
@@ -124,6 +148,10 @@ class GitHubReleaseClientTest {
             server.respondWith("{}", status = status, headers = mapOf("Retry-After" to "120"))
             val failed = assertIs<ReleaseCheckResult.Failed>(client(server, UpdateChannel.PREVIEW, "1.2.0").check())
             assertEquals(ReleaseCheckFailure.RATE_LIMITED, failed.category)
+            assertEquals(
+                if (status == 429) UpdateRateLimitKind.TOO_MANY_REQUESTS else UpdateRateLimitKind.RETRY_AFTER,
+                failed.rateLimitKind,
+            )
             assertTrue(kotlin.math.abs(((failed.retryAfterEpochMillis ?: 0L) - System.currentTimeMillis()) / 1_000L - 120L) <= 2L)
         }
         server.respondWith("{}", status = 403)
@@ -131,6 +159,33 @@ class GitHubReleaseClientTest {
             ReleaseCheckFailure.HTTP_ERROR,
             assertIs<ReleaseCheckResult.Failed>(client(server, UpdateChannel.PREVIEW, "1.2.0").check()).category,
         )
+    }
+
+    @Test
+    fun `primary quota headers identify exhausted GitHub API allowance`() = withServer { server ->
+        val resetEpochSeconds = System.currentTimeMillis() / 1_000L + 180L
+        server.respondWith(
+            "{}",
+            status = 403,
+            headers = mapOf("X-RateLimit-Remaining" to "0", "X-RateLimit-Reset" to resetEpochSeconds.toString()),
+        )
+
+        val failed = assertIs<ReleaseCheckResult.Failed>(client(server, UpdateChannel.STABLE, "1.2.0").check())
+
+        assertEquals(UpdateRateLimitKind.PRIMARY_API_QUOTA, failed.rateLimitKind)
+        assertTrue(kotlin.math.abs((failed.retryAfterEpochMillis ?: 0L) / 1_000L - resetEpochSeconds) <= 2L)
+    }
+
+    @Test
+    fun `HTTP date Retry-After values are parsed`() = withServer { server ->
+        val retryAt = java.time.ZonedDateTime.now(java.time.ZoneOffset.UTC).plusSeconds(120L)
+        val retryHeader = java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME.format(retryAt)
+        server.respondWith("{}", status = 403, headers = mapOf("Retry-After" to retryHeader))
+
+        val failed = assertIs<ReleaseCheckResult.Failed>(client(server, UpdateChannel.STABLE, "1.2.0").check())
+
+        assertEquals(UpdateRateLimitKind.RETRY_AFTER, failed.rateLimitKind)
+        assertTrue(kotlin.math.abs(((failed.retryAfterEpochMillis ?: 0L) - retryAt.toInstant().toEpochMilli()) / 1_000L) <= 2L)
     }
 
     @Test

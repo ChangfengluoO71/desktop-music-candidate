@@ -15,6 +15,8 @@ The local library and player operate on local files without login and remain ind
 
 See [BUILDING.md](docs/BUILDING.md) for JDK, test, local libmpv setup and Windows packaging commands. The project has its own Gradle Wrapper and does not build against `../app/`.
 
+For GitHub update checks and installer downloads, see [update mirror settings](docs/UPDATE-MIRRORS.md). Both connections use GitHub directly by default.
+
 For local Windows playback, run `scripts/prepare-libmpv.ps1` once. It downloads a pinned development build, checks its SHA-256, and installs it under the current user's private application data directory. This runtime is local-only and is not included in Git, the EXE, or the installer.
 
 ## Project documents
@@ -27,6 +29,7 @@ For local Windows playback, run `scripts/prepare-libmpv.ps1` once. It downloads 
 - [Upstream provenance](UPSTREAM.md)
 - [Third-party dependency and license inventory](THIRD_PARTY.md)
 - [Repository and CI status](docs/GITHUB_PRIVATE_PREP.md)
+- [Update mirror settings and trust limits](docs/UPDATE-MIRRORS.md)
 
 ## Branding
 

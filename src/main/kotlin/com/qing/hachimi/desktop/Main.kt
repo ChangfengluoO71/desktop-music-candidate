@@ -78,6 +78,8 @@ import com.qing.hachimi.desktop.update.PendingVersionStatus
 import com.qing.hachimi.desktop.update.UpdateDetailsDialog
 import com.qing.hachimi.desktop.update.UpdateFailureCategory
 import com.qing.hachimi.desktop.update.UpdateManager
+import com.qing.hachimi.desktop.update.UpdateMirrorCatalog
+import com.qing.hachimi.desktop.update.UpdateMirrorTemplate
 import com.qing.hachimi.desktop.update.UpdateState
 import com.qing.hachimi.desktop.update.UpdateStatusIndicator
 import com.qing.hachimi.desktop.update.UpdaterPreferences
@@ -136,18 +138,30 @@ fun main() = application {
     val updaterNetworkFactory = remember(viewModel) {
         DesktopNetworkClientFactory(viewModel?.settings?.value?.network ?: DesktopNetworkSettings())
     }
-    val updateManager = remember(updaterNetworkFactory, initialUpdaterPreferences.etag, appDataDirectory) {
+    val updateManager = remember(
+        updaterNetworkFactory,
+        initialUpdaterPreferences.etag,
+        initialUpdaterPreferences.lastCheckEpochMillis,
+        initialUpdaterPreferences.rateLimitKind,
+        appDataDirectory,
+    ) {
         UpdateManager(
-            releaseProvider = GitHubReleaseClient(networkFactory = updaterNetworkFactory),
+            releaseProvider = GitHubReleaseClient(
+                networkFactory = updaterNetworkFactory,
+                checkMirrorTemplateProvider = { updaterPreferencesStore.load().checkMirrorTemplate },
+            ),
             stager = InstallerStager(
                 stagingDirectory = appDataDirectory.resolve("updates"),
                 networkFactory = updaterNetworkFactory,
+                downloadMirrorTemplateProvider = { updaterPreferencesStore.load().installerMirrorTemplate },
             ),
             initialEtag = initialUpdaterPreferences.etag,
             initialRelease = initialUpdaterPreferences.cachedRelease?.takeIf { cached ->
                 SemVer.parse(BuildInfo.VERSION)?.let { installed -> cached.version > installed } == true
             },
             initialRetryAfterEpochMillis = initialUpdaterPreferences.retryAfterEpochMillis,
+            initialLastCheckEpochMillis = initialUpdaterPreferences.lastCheckEpochMillis,
+            initialRateLimitKind = initialUpdaterPreferences.rateLimitKind,
         )
     }
     val installerHandoff = remember(
@@ -325,10 +339,11 @@ internal fun HachimiDesktopApp(
                 manager.check(manual = true).join()
                 persistUpdaterPreferences(
                     updaterPreferences.copy(
-                        lastCheckEpochMillis = System.currentTimeMillis(),
+                        lastCheckEpochMillis = manager.cachedLastCheckEpochMillis,
                         etag = manager.cachedEtag,
                         cachedRelease = manager.cachedRelease,
                         retryAfterEpochMillis = manager.cachedRetryAfterEpochMillis,
+                        rateLimitKind = manager.cachedRateLimitKind,
                     ),
                 )
             }
@@ -345,10 +360,11 @@ internal fun HachimiDesktopApp(
         val checkedPreferences = if (now - preferences.lastCheckEpochMillis >= UPDATE_CHECK_INTERVAL_MS) {
             manager.check(manual = false).join()
             preferences.copy(
-                lastCheckEpochMillis = System.currentTimeMillis(),
+                lastCheckEpochMillis = manager.cachedLastCheckEpochMillis,
                 etag = manager.cachedEtag,
                 cachedRelease = manager.cachedRelease,
                 retryAfterEpochMillis = manager.cachedRetryAfterEpochMillis,
+                rateLimitKind = manager.cachedRateLimitKind,
             ).also(persistUpdaterPreferences)
         } else preferences
         if (BuildInfo.CHANNEL.equals("preview", ignoreCase = true) &&
@@ -498,6 +514,16 @@ internal fun HachimiDesktopApp(
                             autoDownloadPreview = updaterPreferences.autoDownloadPreview,
                             onAutoDownloadPreviewChanged = { enabled ->
                                 persistUpdaterPreferences(updaterPreferences.copy(autoDownloadPreview = enabled))
+                            },
+                            checkMirrorTemplate = updaterPreferences.checkMirrorTemplate,
+                            installerMirrorTemplate = updaterPreferences.installerMirrorTemplate,
+                            onUpdateMirrorTemplatesChanged = { checkMirror, installerMirror ->
+                                persistUpdaterPreferences(
+                                    updaterPreferences.copy(
+                                        checkMirrorTemplate = checkMirror,
+                                        installerMirrorTemplate = installerMirror,
+                                    ),
+                                )
                             },
                             onCheckForUpdates = checkForUpdates,
                         )
@@ -1474,6 +1500,9 @@ internal fun SettingsScreen(
     updaterState: UpdateState? = null,
     autoDownloadPreview: Boolean = true,
     onAutoDownloadPreviewChanged: ((Boolean) -> Unit)? = null,
+    checkMirrorTemplate: String? = null,
+    installerMirrorTemplate: String? = null,
+    onUpdateMirrorTemplatesChanged: ((String?, String?) -> Unit)? = null,
     onCheckForUpdates: (() -> Unit)? = null,
 ) {
     var directory by remember(settings.defaultDownloadDirectory) {
@@ -1498,6 +1527,10 @@ internal fun SettingsScreen(
     var proxyType by remember(settings.network.proxyType) { mutableStateOf(settings.network.proxyType) }
     var proxyHost by remember(settings.network.proxyHost) { mutableStateOf(settings.network.proxyHost) }
     var proxyPort by remember(settings.network.proxyPort) { mutableStateOf(settings.network.proxyPort.toString()) }
+    var checkMirrorText by remember(checkMirrorTemplate) { mutableStateOf(checkMirrorTemplate.orEmpty()) }
+    var installerMirrorText by remember(installerMirrorTemplate) { mutableStateOf(installerMirrorTemplate.orEmpty()) }
+    var savedCheckMirror by remember(checkMirrorTemplate) { mutableStateOf(checkMirrorTemplate) }
+    var savedInstallerMirror by remember(installerMirrorTemplate) { mutableStateOf(installerMirrorTemplate) }
     var reducedMotion by remember(settings.reducedMotion) { mutableStateOf(settings.reducedMotion) }
     var backdropSource by remember(settings.immersiveBackdropSource) { mutableStateOf(settings.immersiveBackdropSource) }
     var backdropMaterial by remember(settings.immersiveBackdropMaterial) { mutableStateOf(settings.immersiveBackdropMaterial) }
@@ -1558,7 +1591,7 @@ internal fun SettingsScreen(
     }
 
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).testTag("settings-screen-scroll"),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Text(
@@ -1797,6 +1830,75 @@ internal fun SettingsScreen(
         Text("网络设置保存后需重启应用生效；当前已运行的请求会继续使用原路由。")
         Text("应用更新", style = MiuixTheme.textStyles.headline2)
         Text("版本 ${BuildInfo.VERSION} · ${if (BuildInfo.CHANNEL.equals("preview", true)) "Preview" else "Stable"}")
+        Text("更新检查镜像")
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            UpdateMirrorCatalog.checkPresets.forEach { preset ->
+                val selected = checkMirrorText.takeIf(String::isNotBlank) == preset.template
+                Button(
+                    modifier = Modifier.testTag("update-check-mirror-${preset.id}"),
+                    colors = if (selected) ButtonDefaults.buttonColorsPrimary() else ButtonDefaults.buttonColors(),
+                    onClick = {
+                        checkMirrorText = preset.template.orEmpty()
+                        savedCheckMirror = preset.template
+                        onUpdateMirrorTemplatesChanged?.invoke(savedCheckMirror, savedInstallerMirror)
+                    },
+                ) { Text(preset.label) }
+            }
+        }
+        TextField(
+            value = checkMirrorText,
+            onValueChange = { value ->
+                checkMirrorText = value.take(2_048)
+                if (UpdateMirrorTemplate.isValid(checkMirrorText)) {
+                    savedCheckMirror = UpdateMirrorTemplate.parse(checkMirrorText)?.value
+                    onUpdateMirrorTemplatesChanged?.invoke(savedCheckMirror, savedInstallerMirror)
+                }
+            },
+            label = "自定义检查镜像模板（留空直连；需包含 {url}）",
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth().testTag("update-check-mirror-template"),
+        )
+        if (!UpdateMirrorTemplate.isValid(checkMirrorText)) {
+            Text("检查镜像无效：需使用 HTTPS，并且只包含一个 {url}，不能包含账号、查询参数或片段。")
+        }
+        Text("安装包下载镜像")
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            UpdateMirrorCatalog.downloadPresets.forEach { preset ->
+                val selected = installerMirrorText.takeIf(String::isNotBlank) == preset.template
+                Button(
+                    modifier = Modifier.testTag("update-installer-mirror-${preset.id}"),
+                    colors = if (selected) ButtonDefaults.buttonColorsPrimary() else ButtonDefaults.buttonColors(),
+                    onClick = {
+                        installerMirrorText = preset.template.orEmpty()
+                        savedInstallerMirror = preset.template
+                        onUpdateMirrorTemplatesChanged?.invoke(savedCheckMirror, savedInstallerMirror)
+                    },
+                ) { Text(preset.label) }
+            }
+        }
+        TextField(
+            value = installerMirrorText,
+            onValueChange = { value ->
+                installerMirrorText = value.take(2_048)
+                if (UpdateMirrorTemplate.isValid(installerMirrorText)) {
+                    savedInstallerMirror = UpdateMirrorTemplate.parse(installerMirrorText)?.value
+                    onUpdateMirrorTemplatesChanged?.invoke(savedCheckMirror, savedInstallerMirror)
+                }
+            },
+            label = "自定义下载镜像模板（留空直连；需包含 {url}）",
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth().testTag("update-installer-mirror-template"),
+        )
+        if (!UpdateMirrorTemplate.isValid(installerMirrorText)) {
+            Text("下载镜像无效：需使用 HTTPS，并且只包含一个 {url}，不能包含账号、查询参数或片段。")
+        }
+        Text("镜像由第三方运行，会收到对应更新请求。启用检查镜像后，版本与 SHA-256 元数据来自该镜像，无法独立证明发布者身份；默认使用 GitHub 直连。")
         updaterState?.let { Text(updateStatusDescription(it)) }
         onAutoDownloadPreviewChanged?.let { onChange ->
             Button(
