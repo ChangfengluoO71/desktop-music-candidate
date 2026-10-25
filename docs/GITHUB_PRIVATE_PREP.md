@@ -1,24 +1,14 @@
-# Repository and CI status
+# Repository / CI / release status
 
-This file keeps its historical path to avoid breaking older links. It supersedes the earlier private-repository preparation checklist, which is no longer current.
+This path is retained for old links; it is **not** a private-repository preparation checklist.
 
-## Current repository
+Verified 2026-10-25 from the public repository:
 
-- Repository: `ChangfengluoO71/desktop-music-candidate`
-- Visibility: public
-- Default branch: `main`
-- Current product name in documentation: DMC. Runtime branding migration is pending; see [PRODUCT-IDENTITY.md](PRODUCT-IDENTITY.md).
-- Current status snapshot and preview evidence: [PROJECT-STATUS.md](PROJECT-STATUS.md).
+- Repository: [ChangfengluoO71/desktop-music-candidate](https://github.com/ChangfengluoO71/desktop-music-candidate), default branch main, baseline commit 6220796220cb10323b248e54945e2a2855b3b177.
+- Latest verified published release: [v0.0.3](https://github.com/ChangfengluoO71/desktop-music-candidate/releases/tag/v0.0.3), created 2026-10-17, stable GitHub release (not marked prerelease).
+- Desktop CI runs Windows JDK 25 tests on push / PR. A manually dispatched pipeline can build the pinned LGPL libmpv + corresponding source, build the version-stamped app image and Inno Setup installer, smoke-test install/uninstall, and publish release assets after integrity checks. The reported main-head CI runs on 2026-10-17 succeeded; this review did not rerun them.
+- The v0.0.3 public installer includes the audited release libmpv runtime and notices. It is distinct from locally provisioned, third-party development DLLs and ordinary Gradle packageExe tasks.
+- Release assets include installer EXE, libmpv-corresponding-source.tar.gz, libmpv-runtime-manifest.json and SHA256SUMS.txt. Signing is not asserted.
+- Do not store credential manager data, Cloud/WebDAV account keys, cookies, user tracks, downloads, or logs in source control or Actions artifacts.
 
-## CI and preview workflow
-
-`.github/workflows/desktop-ci.yml` runs the Windows test suite on pushes and pull requests with Temurin JDK 25. A manually dispatched workflow can build the Inno Setup installer, run the Windows install/uninstall smoke script, and upload a seven-day artifact. The optional preview-publish step creates a GitHub prerelease and needs `contents: write` only for that job. The workflow does not use NetEase account credentials or sign the installer.
-
-Keep signing and account credentials out of GitHub Actions. Never add local app data, Windows credentials, logs, installers, downloaded music, test audio output or user-specific databases to the repository.
-
-## Remaining repository controls
-
-- Protect `main` against force-push and deletion.
-- Require the Windows tests workflow before merging changes to `main`.
-- Keep preview publishing a deliberate manual action and stable releases separately reviewed.
-- Regenerate dependency/license inventories after playback-engine or native-library changes. Review actual packaged DLLs and their notices, not only Gradle metadata.
+Recommended controls: protect main and require tests; keep publishing manual and restrict release permissions; verify bundled DLL/FFmpeg license obligations at each native upgrade; separate release smoke tests from actual GUI/upgrade acceptance; add WebDAV mock integration tests before introducing remote playback. See [current status](PROJECT-STATUS.md) and [roadmap](ROADMAP.md).

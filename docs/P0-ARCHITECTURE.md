@@ -1,54 +1,56 @@
-# P0 architecture baseline and minimum decoupling plan
+# DMC 架构基线与云端扩展边界
 
-This document records the P0 architecture baseline. The player described as future work below has since been partially implemented; see the current [Player P1 status](PLAYER-P1.md) for the JavaFX backend and remaining acceptance gates.
+> 这是旧 P0 文档的替代性现状说明：2026-10-25 根据 main @ 6220796 核查。此前文档中“JavaFX 为当前播放器、FLAC 不支持”等叙述属于过时状态，不再作为开发前提。历史阶段记录仍保存在 P0-STATUS.md 和 docs/superpowers/。
 
-## Current dependency picture
+## 当前功能边界
 
-```mermaid
+~~~mermaid
 flowchart LR
-  subgraph Local[Local library — works offline]
-    Files[Music files and embedded tags] --> Scanner[DesktopMusicScanner]
-    Scanner --> Tracks[LocalTrack keyed by normalized path]
-    Tracks --> SQLite[LocalMusicStore SQLite]
-    SQLite --> LocalUI[Local music UI and duplicate analysis]
-  end
+  Files[Local audio files] --> Scanner[DesktopMusicScanner]
+  Scanner --> Store[LocalMusicStore / SQLite]
+  Store --> LocalTrack[LocalTrack / pathKey]
+  LocalTrack --> Queue[PlaybackCoordinator / PlaybackQueueStore v1]
+  Queue --> Engine[LibMpvPlaybackEngine / JNA]
+  Engine --> Output[libmpv / WASAPI shared]
+  Netease[Optional NetEase discovery] --> Download[DownloadTaskManager / downloader]
+  Download --> Files
+  Session[SessionManager / Credential Manager] --> Netease
+  Remote[Future WebDAV source] -. planned .-> Catalog[Remote catalog / source identity]
+  Catalog -. planned .-> Resolver[Authorized media stream resolver]
+  Resolver -. planned .-> Queue
+~~~
 
-  subgraph Online[Optional NetEase features]
-    Discovery[Search / discovery / collections] --> Service[DesktopService and NetEase API]
-    Service --> SongRef[SongHit / Song ID]
-    SongRef --> Queue[DownloadTaskManager]
-    Queue --> Session[SessionManager]
-    Session --> Credential[Windows Credential Manager]
-    Queue --> Resolve[Source resolution]
-    Resolve --> Transfer[AudioUrlPolicy / DesktopDownloader]
-    Transfer --> FilesOut[Downloaded media files]
-    Resolve --> Post[Online lyrics / tags preparation]
-    Post --> FilesOut
-  end
+- 本地文件 pathKey 是现有曲库/队列主标识；不可复用为 remote URL ID。
+- libmpv 当前为唯一生产播放后端，但 load() 限定可读本地常规文件；JavaFX 遗留代码不是生产回退。
+- 下载相关 ID / 鉴权与网易云 Provider 耦合。本地扫描与本地播放无需登录。
+- v0.0.3 发布安装包包含 CI 构建的 LGPL libmpv；本地普通 Gradle / Inno 打包流程不自动等价。
 
-  FilesOut --> Scanner
-  LocalUI --> PlayerVM[PlayerViewModel]
-  PlayerVM --> Coordinator[PlaybackCoordinator]
-  Coordinator --> Playback[JavaFxPlaybackEngine]
-```
+## 目标协议边界（均未实现）
 
-## Findings from the current code
+~~~mermaid
+flowchart LR
+  UI[Unified music library / queue] --> Item[PlaybackItem]
+  Item --> Local[LocalPathSource]
+  Item --> Remote[RemoteSourceRef]
+  Remote --> Adapter[WebDavAdapter]
+  Adapter --> Credential[Isolated credential vault]
+  Adapter --> Stream[Range-aware stream resolver]
+  Stream --> Proxy[Loopback / session-scoped media bridge]
+  Local --> Engine[libmpv playback engine]
+  Proxy --> Engine
+  Engine --> Audio[WASAPI shared]
+~~~
 
-- `LocalTrack` identity is based on normalized file path. Moving a file creates a new local identity. Its metadata, technical parameters and optional SHA-256 live in the local SQLite index.
-- The `LocalMusicStore` tables contain filesystem roots, local tracks and root/path membership. They do not contain NetEase song IDs or login state.
-- Local scanning, indexing and duplicate analysis do not depend on `SessionManager`, cookies or a live API. They can operate offline.
-- The local playback engine, queue and synchronized local lyrics are now implemented behind the player interface. The current OpenJFX backend supports the tested MP3, AAC-LC/M4A and PCM WAV samples; FLAC is unsupported and audible output/installed-package acceptance remains open.
-- `DownloadTask` requires a NetEase `songId`; search, collection import, source resolution and post-processing are NetEase-aware. Download task history is a versioned JSON store, separate from the local music SQLite database.
-- QR session credentials are stored through a Windows Credential Manager target; they are not part of the local library schema. Local tracks remain available when the account is signed out.
-- Downloaded files can later be discovered as ordinary local files by the scanner, but there is no provider-neutral library ID linking the downloaded task record to a library track.
-- Lyrics and audio-tag preparation currently use online NetEase metadata. File scanning and tag reading itself is local. The local library and online account are operationally separate, though both are owned by the same application.
+推荐最小模型：
 
-## Minimal decoupling sequence
+- PlaybackItem = { itemId, title, artist, sourceRef, metadata }; itemId 是 DMC 内稳定 ID，不以 URL、路径或网盘凭据为键。
+- SourceRef = LocalPath(localTrackId) | WebDavObject(sourceId, relativePath, etag?, size?, lastModified?)；保留演化至其他 Provider 的可能。
+- CloudSourceConfig 保存 URL、显示名、认证方式和**凭据引用**，不把密码/令牌写进曲库或播放队列。
+- WebDavAdapter 负责目录列举和协议探测；StreamResolver 负责运行期获取、刷新和安全访问；PlaybackEngine 只消费已解析的可播放输入。
+- PlaybackQueueStore v1 必须仍能被新读取器加载；迁移采用新增版本、原子写入、失败回滚，不改写旧格式后丢失本地歌曲。
 
-1. [Implemented] Keep the local file/path identity and SQLite schema stable while adding playback. The player accepts local file paths and does not depend on online providers or account state.
-2. Introduce stable provider-neutral `LibraryTrackId` values and a separate `ProviderTrackRef(providerId, remoteId)` mapping. Do not put provider IDs into the core local track schema as the primary key.
-3. Evolve new download records to use `providerId` plus `remoteTrackId`, retaining a NetEase adapter for existing JSON history. Keep old schema readers and define an explicit migration before changing serialization.
-4. Define provider-neutral lyrics and artwork records. Store source/provenance separately from the editable local tags, so local playback and user tags survive logout or API changes.
-5. Keep authentication inside provider modules. The local scanner, playback engine, local library store and local lyric files must not request a session.
+## 关键防护
 
-P0 intentionally makes no SQLite or JSON schema change. The independent DMC preview uses its own `DesktopMusicCandidate` data root, so it does not mutate the previous Hachimi Desktop profile.
+HTTPS 默认为必需，HTTP 仅允许用户主动配置的受信任环回地址；禁止证书验证关闭作为默认解法。对来自服务器的 href 和 redirect 限制 origin/网盘根目录与文件类型，不在跳转时透传 Authorization。远端请求有并发限制/超时/大小限制；元数据解析防 XML 外部实体和 XML 炸弹；可视化日志不记录完整认证 URL 或 Header。
+
+具体协议行为、POC 验收矩阵和不做清单见 [CLOUD-PLAYBACK-DESIGN.md](CLOUD-PLAYBACK-DESIGN.md)。

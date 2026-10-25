@@ -1,64 +1,41 @@
-# DMC 项目状态
+# DMC 当前项目状态
 
-快照：2026-10-16。R3 集成播放器与本地曲库代码已完成；历史全量测试、Windows EXE 构建和本机固定版 libmpv 原生验收通过。当前源码窗口已可见，专辑/歌手卡片操作已改为封面悬浮按钮；本轮尚未手动点击验收这些操作。
+**审阅日期：2026-10-25；远端代码基线：main @ 6220796220cb10323b248e54945e2a2855b3b177（2026-10-17）。** 本文件是远端代码、发布页面、工作流和历史报告核验，不是本轮本机重新运行应用/测试的结果。
 
-## 仓库与构建
+## 当前实际状态
 
-- 仓库：ChangfengluoO71/desktop-music-candidate，公开仓库；当前分支 main。
-- 本轮起始基线：`918b4a199b9c0b26dfa0d28f7f674e4024655c33`（`main`）。
-- 本轮未 Merge、Release；未修改 Android 端。
-- 构建使用 JDK 25，字节码目标保持项目配置。
-- 现有预览发布、安装身份、用户数据目录和在线模块不在本轮修改范围内。
+| 维度 | 核验结论 | 依据与边界 |
+| --- | --- | --- |
+| 公开仓库 | PASS | main HEAD 6220796；代码结构为 Kotlin/JVM + Compose Desktop，JNA/libmpv |
+| 最新已核实发行版 | RELEASED | v0.0.3，2026-10-17，非 GitHub prerelease 标记 |
+| 发行版播放运行库 | INCLUDED IN RELEASE | v0.0.3 Release 描述及 CI 的 IncludeReleaseMpv 构建参数、libmpv 源码/运行库清单/校验资产 |
+| 本地源构建 | CONFIGURATION-DEPENDENT | 缺省 Gradle releaseVersion 为 0.1.2；普通 packageExe 和普通 Inno 打包不等同于官方 v0.0.3 发行 |
+| 主分支 CI | PASS REPORTED | 2026-10-17 在该 HEAD 的两次 Desktop CI 运行显示 success；本轮未重跑 |
+| 本地播放实现 | IMPLEMENTED IN CODE | LocalTrack → PlaybackEngine.load → LibMpvPlaybackEngine，WASAPI shared；限定本地常规文件 |
+| 曲库与播放器界面 | IMPLEMENTED IN CODE | 四类本地浏览、队列、歌词、沉浸式 UI 相关代码与测试存在；不等同于所有交互人工通过 |
+| 网易云发现 / 下载 | IMPLEMENTED IN CODE | 可选的服务、会话、下载任务与音源 URL 安全处理 |
+| WebDAV / 云端在线播放 | NOT IMPLEMENTED | 目前不存在远端目录和播放源抽象；本地路径模型不能直接承载 URL |
+| Windows 发布体验 | PARTIAL EVIDENCE | CI 打包、校验与安装/卸载烟雾测试不能代替多机器真实安装、扬声器输出、升级及 UAC 验收 |
 
-## R3 实施状态
+GitHub 证据：[main HEAD](https://github.com/ChangfengluoO71/desktop-music-candidate/commit/6220796220cb10323b248e54945e2a2855b3b177)、[v0.0.3 Release](https://github.com/ChangfengluoO71/desktop-music-candidate/releases/tag/v0.0.3)、[Desktop CI](https://github.com/ChangfengluoO71/desktop-music-candidate/actions)。历史 2026-10-14 的全量 298 tests 和 nativeMpvShared 两项通过记录见 [Player P1](PLAYER-P1.md) 与 [原生验收记录](testing/libmpv-r2-windows-acceptance.md)。**不能将历史测试数当作当前 HEAD 的本轮实测数。**
 
-- 播放器入口进入 DMC 主窗口“正在播放”页面，迷你播放器跨页面保持显示；不再通过独立 DialogWindow 展示完整播放器。
-- Now Playing 随窗口尺寸切换并排或堆叠布局；歌词支持时间点跳转，手动滚动暂停跟随和显式恢复。
-- libmpv 继续作为唯一生产播放器，固定 WASAPI shared，设置 audio-display=no。无回退到 JavaFX 的逻辑。
-- 本地音乐库新增专辑、歌手、歌曲和文件夹浏览，网格自适应、歌曲列表虚拟化、排序和文件夹筛选。
-- 专辑/曲目支持播放、播放下一首和加入队列；封面仓库共享提取、限制 64 MiB 解码缓存、并发去重和变更失效。
-- 目录监听可按变更路径增量更新，等待复制文件稳定，并在监听丢失/溢出后做根目录恢复扫描。
+## 结构性限制和风险
 
-## 验证结果
+1. 本地曲目键基于 Windows 规范化路径（LocalTrack.pathKey）；移动文件等于新身份，无法直接表达云盘文件 ID。
+2. PlaybackCoordinator 的 queue 是 List<LocalTrack>；PlaybackQueueStore v1 从本地 availableTracks 按路径恢复。引入远端类型必须先定义兼容迁移，不能伪造本地路径。
+3. libmpv native engine 在 load 时调用 Files.isRegularFile / Files.isReadable，并将本地绝对路径交给 loadfile；网络 URL 尚未打通。
+4. 当前下载任务模型仍对网易云 ID 有依赖；不要为了云端播放改写下载队列或账号会话数据。
+5. JavaFX 旧代码及依赖仍存在，属于迁移残余，不代表生产播放后端存在自动回退。
+6. 发布分发已包含运行库，但每次更新 libmpv/FFmpeg 构建及依赖仍需重新做许可和可再链接义务核查。
 
-| 类型 | 结果 | 证据 |
-|---|---|---|
-| JDK 25 全量自动化 | PASS | `./gradlew.bat --no-daemon test --rerun-tasks`：298 tests，49 reports，0 failures/errors/skips |
-| Windows EXE 构建 | PASS | `./gradlew.bat --no-daemon packageExe`：生成 `build/compose/binaries/main/exe/DesktopMusicCandidate-0.1.2.exe` |
-| 本轮源码启动 | PASS | JDK 25 下 `./gradlew.bat --no-daemon run`；窗口标题 `Desktop Music Candidate`，已捕获本地曲库窗口画面 |
-| 本次原生 libmpv 验收 | PASS | JDK 25.0.2，`nativeMpvShared` 2 tests passed；MP3/FLAC/M4A/WAV 使用 WASAPI 并前进；嵌入封面无额外窗口 |
-| 卡片操作 GUI 交互 | NOT RUN | 画面确认播放与更多操作图标显示在封面上；本轮未点击菜单项、未验证队列结果或高 DPI |
-| 全量自动化（本轮） | NOT RUN | 沿用上一次 298 项结果；本轮更新了卡片操作测试步骤，但未执行测试套件 |
-| 安装/升级/卸载 | NOT RUN | 本轮只构建 EXE，未运行安装器 |
+## 立即处理的门禁（C0）
 
-R2 历史记录单独保留于 `docs/testing/libmpv-r2-windows-acceptance.md`；它不能替代 R3 对 audio-display=no 和嵌入封面窗口行为的验收。
+- 在干净 Windows 11、已有安装升级、卸载保留数据三种路径实测 **v0.0.3**：安装路径、开始菜单、完整 GUI、MP3/FLAC/M4A/WAV、libmpv 加载、歌词和队列，记录截图与设备环境。
+- 验证 100%、125%、150%、200% DPI、窗口改变、主窗口/沉浸式歌词交互、封面加载及错误提示。
+- 核对 releaseVersion 与二进制 BuildInfo，继续将可见版本、更新检查、Release tag 分开验证。
+- 清点未完成的人工验收、许可证、遗留 JavaFX 依赖；仅在完成回归后决定清理。
+- 开始 WebDAV POC 前冻结本地播放和队列向后兼容测试；不允许先改持久化 schema 再补迁移。
 
-## 运行与依赖边界
+## 下一阶段
 
-- 播放器依赖用户提供受支持的 libmpv 运行库；当前 EXE 构建未包含该运行库。
-- JavaFX 旧实现和依赖尚在仓库中作为迁移残留，但生产入口使用 libmpv；删除残留放到独立审核。
-- 本地播放器不需要登录；在线网易云搜索、登录和下载与本地曲库保持分离。
-
-## 下一步
-
-1. 手动验收专辑/歌手封面上的播放按钮与更多菜单，确认“下一首播放”和“加入播放队列”结果。
-2. 在 100%、125%、150% 和 200% Windows 缩放下检查封面卡片、弹出菜单、Now Playing 和歌词布局，并验证键盘焦点与禁用态。
-3. 完成安装版播放验收；当前安装包未携带 libmpv，需先明确运行库许可与分发方案。
-4. 视觉验收通过后，进入沉浸式 Now Playing 设计：封面氛围背景、主封面、歌词/翻译/罗马音和清晰的播放控制；先提交设计稿，再实施。
-5. 随后再规划 P2：收藏/历史/播放列表、媒体键、播放设备和播放行为设置。
-
-## 卡片操作改版（2026-10-16）
-
-- 专辑和歌手卡片不再在每张封面下方铺开三个宽按钮；改为封面右下角播放图标，以及右上角更多菜单。
-- 更多菜单提供“下一首播放”和“加入播放队列”；卡片主体继续执行原有专辑/歌手筛选行为。
-- JDK 25 源码窗口已启动并捕获画面；自动化测试步骤已跟随菜单交互更新，但本轮未运行测试，也未人工点击验收。
-- 本次记录归档见 `docs/archive/2026-10-16-local-library-card-actions.md`。
-
-## libmpv 本机运行库跟进（2026-10-14）
-
-- 根因：当前预览包不含 libmpv，本机用户数据目录原先也没有 `libmpv-2.dll`；播放器按既有安全逻辑只从显式绝对路径或应用私有目录加载，因此初始化时无法播放。
-- 已新增 `scripts/prepare-libmpv.ps1`，固定上游 Windows x64 开发归档并校验 SHA-256，再安装到 `%APPDATA%\DesktopMusicCandidate\libmpv`。归档与运行库留在用户目录，不进入 Git 或安装包。
-- `nativeMpvShared` 已改为默认发现上述 DLL 与缓存归档；需 JDK 21+，项目使用 JDK 25 验证。JDK 17 错误会在任务执行前明确提示。
-- JDK 25.0.2 原生验收：2 tests passed；MP3、FLAC、M4A/AAC、WAV 均使用 WASAPI 并前进；嵌入封面测试未生成额外可见窗口。具体来源和哈希见 `docs/testing/libmpv-runtime.md`。
-- 这只关闭本机 libmpv 原生验收项；人工 GUI 控件、安装版播放、发布二进制许可审核仍未完成。
-- 随后使用 JDK 25 启动源码应用，Windows 进程模块检查确认已从 `%APPDATA%\DesktopMusicCandidate\libmpv\libmpv-2.dll` 加载运行库；未使用临时 `dmc.libmpv.path` 覆盖。
+详见 [ROADMAP.md](ROADMAP.md) 与 [CLOUD-PLAYBACK-DESIGN.md](CLOUD-PLAYBACK-DESIGN.md)。本文件中的 WebDAV 工作全部属于待做规划，绝不暗示功能已经落地。
