@@ -3,6 +3,7 @@ package com.qing.hachimi.desktop
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -11,6 +12,7 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeUp
@@ -104,8 +106,8 @@ class DesktopArtworkScreenTest {
             onNodeWithTag("artwork-thumbnail-song-42").assertIsDisplayed().performClick()
             waitUntil(conditionDescription = "artwork preview loaded") { harness.viewModel.ui.value.artworkPreview?.loading == false }
             onNodeWithTag("artwork-preview-dialog").assertIsDisplayed()
-            onNodeWithTag("artwork-preview-close").performClick()
-            waitUntil(timeoutMillis = 10_000, conditionDescription = "artwork preview closed") { harness.viewModel.ui.value.artworkPreview == null }
+            onNodeWithTag("artwork-preview-close").performSemanticsAction(SemanticsActions.OnClick)
+            assertEquals(null, harness.viewModel.ui.value.artworkPreview)
             waitForIdle()
         } finally {
             harness.close()
