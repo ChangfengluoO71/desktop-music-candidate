@@ -17,6 +17,7 @@ import androidx.compose.ui.test.swipeUp
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.v2.runComposeUiTest
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import java.nio.file.Files
@@ -86,7 +87,7 @@ class DesktopArtworkScreenTest {
     @OptIn(ExperimentalTestApi::class)
     @Test
     fun `thumbnail opens preview dialog and close button dismisses it`() = runComposeUiTest {
-        val harness = createHarness()
+        val harness = createHarness(mainDispatcher = Dispatchers.Main.immediate)
         try {
             setContent {
                 val ui by harness.viewModel.ui.collectAsState()
@@ -251,7 +252,10 @@ class DesktopArtworkScreenTest {
         }
     }
 
-    private fun createHarness(settings: DesktopSettings? = null): Harness {
+    private fun createHarness(
+        settings: DesktopSettings? = null,
+        mainDispatcher: CoroutineDispatcher = Dispatchers.Unconfined,
+    ): Harness {
         val root = Files.createTempDirectory("hachimi-artwork-screen")
         val gateway = GatewayStub()
         val session = SessionManager(MemoryCredentialStore(), SessionValidator { SessionValidation.VALID })
@@ -269,7 +273,7 @@ class DesktopArtworkScreenTest {
             taskManager = manager,
             sessionManager = session,
             ioDispatcher = Dispatchers.Unconfined,
-            mainDispatcher = Dispatchers.Unconfined,
+            mainDispatcher = mainDispatcher,
         )
         return Harness(viewModel, gateway)
     }
