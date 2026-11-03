@@ -225,11 +225,23 @@ class DownloadTaskManager(
         if (shuttingDown) return
         stateLock.withLock {
             if (shuttingDown) return
-            mutableSettings.value = settings
+            // Sidebar state is owned by updateSidebarCollapsed, not settings drafts.
+            mutableSettings.value = settings.copy(sidebarCollapsed = mutableSettings.value.sidebarCollapsed)
             publishLocked()
             persistLocked()
         }
         schedule()
+    }
+
+    /** Updates only the sidebar preference while preserving concurrent setting changes. */
+    suspend fun updateSidebarCollapsed(collapsed: Boolean) {
+        if (shuttingDown) return
+        stateLock.withLock {
+            if (shuttingDown) return
+            mutableSettings.value = mutableSettings.value.copy(sidebarCollapsed = collapsed)
+            publishLocked()
+            persistLocked()
+        }
     }
 
     /** Stops active transfers before a user logout; resumable bytes are kept and reauth tasks wait. */

@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -36,6 +38,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
@@ -102,6 +105,88 @@ internal fun LocalMusicScreen(
     )
 }
 
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+internal fun LocalLibraryScanControls(viewModel: LocalMusicViewModel) {
+    val state by viewModel.state.collectAsState()
+
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Button(modifier = Modifier.testTag("local-music-add-root"), onClick = { viewModel.addRoots(chooseMusicDirectories()) }) { Text("添加目录") }
+            Button(
+                modifier = Modifier.testTag("local-music-scan"),
+                enabled = state.roots.isNotEmpty() && !state.isScanning && !state.isAnalyzingDuplicates,
+                colors = ButtonDefaults.buttonColorsPrimary(), onClick = viewModel::scan,
+            ) { Text(if (state.isScanning) "扫描中…" else "扫描") }
+            if (state.isScanning) Button(modifier = Modifier.testTag("local-music-cancel-scan"), onClick = viewModel::cancelScan) { Text("取消") }
+            Button(
+                modifier = Modifier.testTag("local-music-hash-duplicates"),
+                enabled = state.tracks.isNotEmpty() && !state.isScanning && !state.isAnalyzingDuplicates,
+                onClick = viewModel::analyzeDuplicates,
+            ) { Text(if (state.isAnalyzingDuplicates) "校验中…" else "查找重复") }
+            if (state.isAnalyzingDuplicates) Button(modifier = Modifier.testTag("local-music-cancel-analysis"), onClick = viewModel::cancelDuplicateAnalysis) { Text("取消校验") }
+            Button(modifier = Modifier.testTag("local-music-upgrade-preview"), enabled = state.tracks.isNotEmpty(), onClick = viewModel::previewUpgrades) { Text("音质预览") }
+        }
+        Text("只读索引 · ${state.tracks.size} 首", style = MiuixTheme.textStyles.body2)
+        state.recoveryWarning?.let { Text(it, color = MiuixTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+        Text(
+            state.progress?.let { "扫描 ${it.completedFiles}/${it.totalFiles} · ${it.currentPath?.substringAfterLast('\\').orEmpty()}" }
+                ?: state.analysisProgress?.let { "校验 ${it.completedFiles}/${it.totalFiles} · ${it.currentPath?.substringAfterLast('\\').orEmpty()}" }
+                ?: state.message,
+            modifier = Modifier.testTag("local-music-status"), maxLines = 1, overflow = TextOverflow.Ellipsis,
+        )
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth().heightIn(max = 44.dp)) {
+            items(state.roots, key = { it.path }) { root ->
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(root.path, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.width(190.dp))
+                    Button(modifier = Modifier.testTag("local-music-watch-${root.path.hashCode()}"), onClick = { viewModel.setRootAutoWatch(root.path, !root.autoWatch) }) {
+                        Text(if (root.autoWatch) "监听中" else "监听")
+                    }
+                    Button(modifier = Modifier.testTag("local-music-remove-root"), enabled = !state.isScanning && !state.isAnalyzingDuplicates, onClick = { viewModel.removeRoot(root.path) }) { Text("移除索引") }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun LocalLibrarySearchControls(viewModel: LocalMusicViewModel, playerViewModel: PlayerViewModel?) {
+    val state by viewModel.state.collectAsState()
+    var query by rememberSaveable { mutableStateOf("") }
+    var format by rememberSaveable { mutableStateOf("") }
+    var artist by rememberSaveable { mutableStateOf("") }
+    var album by rememberSaveable { mutableStateOf("") }
+    val results = remember(state.tracks, query, format, artist, album) {
+        state.copy(searchFilter = query, formatFilter = format, artistFilter = artist, albumFilter = album,
+            selectedAlbumTrackKeys = null, folderFilter = null).visibleTracks
+    }
+    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+            TextField(value = query, onValueChange = { query = it }, label = "搜索本地音乐", singleLine = true, modifier = Modifier.weight(1f).testTag("local-music-search"))
+            Text("${results.size} / ${state.tracks.size} 首")
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+            TextField(value = format, onValueChange = { format = it }, label = "格式", singleLine = true, modifier = Modifier.weight(0.8f).testTag("local-music-format-filter"))
+            TextField(value = artist, onValueChange = { artist = it }, label = "歌手", singleLine = true, modifier = Modifier.weight(1f).testTag("local-music-artist-filter"))
+            TextField(value = album, onValueChange = { album = it }, label = "专辑", singleLine = true, modifier = Modifier.weight(1f).testTag("local-music-album-filter"))
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Button(modifier = Modifier.testTag("local-music-play-filtered"), enabled = results.isNotEmpty() && playerViewModel != null, onClick = { playerViewModel?.playTracks(results) }) { Text("播放") }
+            Button(modifier = Modifier.testTag("local-music-queue-filtered"), enabled = results.isNotEmpty() && playerViewModel != null, onClick = { playerViewModel?.enqueue(results) }) { Text("加入播放队列") }
+        }
+        LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("local-search-results"), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            items(results, key = { it.id }) { track ->
+                LocalTrackRow(track,
+                    playerViewModel?.let { player -> { item -> player.play(item); Unit } },
+                    playerViewModel?.let { player -> { item -> player.playNext(item) } },
+                    playerViewModel?.let { player -> { item -> player.enqueue(listOf(item)) } })
+            }
+            if (results.isEmpty()) item { Text("暂无符合条件的曲目。", modifier = Modifier.padding(12.dp)) }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun LocalMusicContent(
     state: LocalMusicUiState,
@@ -144,55 +229,19 @@ internal fun LocalMusicContent(
     }
     val folders = remember(state.roots, state.tracks) { buildFolderEntries(state.roots, state.tracks) }
 
-    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Button(modifier = Modifier.testTag("local-music-add-root"), onClick = { onAddDirectories(chooseMusicDirectories()) }) { Text("添加目录") }
-            Button(
-                modifier = Modifier.testTag("local-music-scan"),
-                enabled = state.roots.isNotEmpty() && !state.isScanning && !state.isAnalyzingDuplicates,
-                colors = ButtonDefaults.buttonColorsPrimary(), onClick = onScan,
-            ) { Text(if (state.isScanning) "扫描中…" else "扫描") }
-            if (state.isScanning) Button(modifier = Modifier.testTag("local-music-cancel-scan"), onClick = onCancelScan) { Text("取消") }
-            Button(modifier = Modifier.testTag("local-music-hash-duplicates"), enabled = state.tracks.isNotEmpty() && !state.isScanning && !state.isAnalyzingDuplicates, onClick = onAnalyzeDuplicates) {
-                Text(if (state.isAnalyzingDuplicates) "校验中…" else "查找重复")
+    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            val selectBrowseMode: (LocalMusicBrowseMode) -> Unit = { mode ->
+                onArtistFilter("")
+                onAlbumFilter("")
+                onFolderFilter(null)
+                onBrowseMode(mode)
             }
-            if (state.isAnalyzingDuplicates) Button(modifier = Modifier.testTag("local-music-cancel-analysis"), onClick = onCancelAnalysis) { Text("取消校验") }
-            Button(modifier = Modifier.testTag("local-music-upgrade-preview"), enabled = state.tracks.isNotEmpty(), onClick = onPreviewUpgrades) { Text("音质预览") }
-            Spacer(Modifier.weight(1f))
-            Text("只读索引 · ${state.tracks.size} 首", style = MiuixTheme.textStyles.body2)
-        }
-        state.recoveryWarning?.let { Text(it, color = MiuixTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-        Text(
-            state.progress?.let { "扫描 ${it.completedFiles}/${it.totalFiles} · ${it.currentPath?.substringAfterLast('\\').orEmpty()}" }
-                ?: state.analysisProgress?.let { "校验 ${it.completedFiles}/${it.totalFiles} · ${it.currentPath?.substringAfterLast('\\').orEmpty()}" }
-                ?: state.message,
-            modifier = Modifier.testTag("local-music-status"), maxLines = 1, overflow = TextOverflow.Ellipsis,
-        )
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth().heightIn(max = 44.dp)) {
-            items(state.roots, key = { it.path }) { root ->
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text(root.path, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.width(190.dp))
-                    Button(modifier = Modifier.testTag("local-music-watch-${root.path.hashCode()}"), onClick = { onToggleRootAutoWatch(root) }) {
-                        Text(if (root.autoWatch) "监听中" else "监听")
-                    }
-                    Button(modifier = Modifier.testTag("local-music-remove-root"), enabled = !state.isScanning && !state.isAnalyzingDuplicates, onClick = { onRemoveRoot(root.path) }) { Text("移除索引") }
-                }
-            }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-            TextField(value = state.searchFilter, onValueChange = onSearchFilter, label = "搜索本地音乐", singleLine = true, modifier = Modifier.weight(1f).testTag("local-music-search"))
-            Text("${state.visibleTracks.size} / ${state.tracks.size} 首")
-            LocalBrowseTab("专辑", LocalMusicBrowseMode.ALBUMS, state.browseMode, onBrowseMode, "local-browse-albums")
-            LocalBrowseTab("歌手", LocalMusicBrowseMode.ARTISTS, state.browseMode, onBrowseMode, "local-browse-artists")
-            LocalBrowseTab("歌曲", LocalMusicBrowseMode.SONGS, state.browseMode, onBrowseMode, "local-browse-songs")
-            LocalBrowseTab("文件夹", LocalMusicBrowseMode.FOLDERS, state.browseMode, onBrowseMode, "local-browse-folders")
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-            TextField(value = state.formatFilter, onValueChange = onFormatFilter, label = "格式", singleLine = true, modifier = Modifier.weight(0.8f).testTag("local-music-format-filter"))
-            TextField(value = state.artistFilter, onValueChange = onArtistFilter, label = "歌手", singleLine = true, modifier = Modifier.weight(1f).testTag("local-music-artist-filter"))
-            TextField(value = state.albumFilter, onValueChange = onAlbumFilter, label = "专辑", singleLine = true, modifier = Modifier.weight(1f).testTag("local-music-album-filter"))
-            Button(modifier = Modifier.testTag("local-music-play-filtered"), enabled = state.visibleTracks.isNotEmpty() && onStartTracks != null, colors = ButtonDefaults.buttonColorsPrimary(), onClick = { onStartTracks?.invoke(state.visibleTracks) }) { Text("播放") }
-            Button(modifier = Modifier.testTag("local-music-queue-filtered"), enabled = state.visibleTracks.isNotEmpty() && onPlayTracks != null, onClick = { onPlayTracks?.invoke(state.visibleTracks) }) { Text("加入队列") }
+            LocalBrowseTab("专辑", LocalMusicBrowseMode.ALBUMS, state.browseMode, selectBrowseMode, "local-browse-albums")
+            LocalBrowseTab("歌手", LocalMusicBrowseMode.ARTISTS, state.browseMode, selectBrowseMode, "local-browse-artists")
+            LocalBrowseTab("歌曲", LocalMusicBrowseMode.SONGS, state.browseMode, selectBrowseMode, "local-browse-songs")
+            LocalBrowseTab("文件夹", LocalMusicBrowseMode.FOLDERS, state.browseMode, selectBrowseMode, "local-browse-folders")
+            Button(modifier = Modifier.testTag("local-music-shuffle"), enabled = state.tracks.isNotEmpty() && onStartTracks != null, onClick = { onStartTracks?.invoke(state.tracks.shuffled()) }) { Text("随机播放全部") }
         }
         HorizontalDivider()
 
@@ -200,7 +249,7 @@ internal fun LocalMusicContent(
             val contentWidth = maxWidth
             when (state.browseMode) {
                 LocalMusicBrowseMode.ALBUMS -> LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = 176.dp), modifier = Modifier.fillMaxSize().testTag("local-album-grid"),
+                    columns = GridCells.Adaptive(minSize = 200.dp), modifier = Modifier.fillMaxSize().testTag("local-album-grid"),
                     horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     gridItems(albums, key = { it.key }) { album ->
@@ -223,7 +272,7 @@ internal fun LocalMusicContent(
                     if (albums.isEmpty()) item { Text("扫描后会在此显示本地专辑封面墙。") }
                 }
                 LocalMusicBrowseMode.ARTISTS -> LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = 176.dp), modifier = Modifier.fillMaxSize().testTag("local-artist-grid"),
+                    columns = GridCells.Adaptive(minSize = 200.dp), modifier = Modifier.fillMaxSize().testTag("local-artist-grid"),
                     horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     gridItems(artists, key = { it.name.lowercase(Locale.ROOT) }) { artist ->
@@ -314,7 +363,7 @@ private fun LocalAlbumCard(
     canPlayNext: Boolean,
     canQueue: Boolean,
 ) {
-    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(8.dp).testTag("local-album-${album.key.hashCode()}"), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(MiuixTheme.colorScheme.onBackground.copy(alpha = 0.035f)).clickable(onClick = onClick).padding(7.dp).testTag("local-album-${album.key.hashCode()}"), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         LocalArtworkActionCover(
             track = album.tracks.first(),
             artworkRepository = artworkRepository,
@@ -347,7 +396,7 @@ private fun LocalArtistCard(
     canQueue: Boolean,
 ) {
     val albumCount = artist.tracks.map { it.album.trim().lowercase(Locale.ROOT) }.filter(String::isNotBlank).distinct().size
-    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(8.dp).testTag("local-artist-${artist.name.hashCode()}"), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(MiuixTheme.colorScheme.onBackground.copy(alpha = 0.035f)).clickable(onClick = onClick).padding(7.dp).testTag("local-artist-${artist.name.hashCode()}"), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         LocalArtworkActionCover(
             track = artist.tracks.first(),
             artworkRepository = artworkRepository,
@@ -382,8 +431,8 @@ private fun LocalArtworkActionCover(
 ) {
     var menuExpanded by remember(prefix, key) { mutableStateOf(false) }
     val id = remember(prefix, key) { key.hashCode() }
-    Box(Modifier.fillMaxWidth().height(144.dp), contentAlignment = Alignment.Center) {
-        LocalArtworkThumbnail(track, artworkRepository, 144.dp)
+    Box(Modifier.fillMaxWidth().height(136.dp), contentAlignment = Alignment.Center) {
+        LocalArtworkThumbnail(track, artworkRepository, 136.dp)
         CoverIconButton(
             description = "播放$subject",
             tag = "$prefix-play-$id",
@@ -565,7 +614,7 @@ private fun LocalTrackRow(
     onQueueTrack: ((LocalTrack) -> Unit)?,
 ) {
     Column(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 7.dp).testTag("local-track-${track.id}")
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 5.dp).testTag("local-track-${track.id}")
             .pointerInput(track.id, onPlayTrack) {
                 detectTapGestures(onDoubleTap = { onPlayTrack?.invoke(track) })
             },
@@ -576,27 +625,26 @@ private fun LocalTrackRow(
             Spacer(Modifier.weight(1f))
             Text("${track.format} · ${track.metadataStatus}")
         }
-        Text("${track.artists.joinToString().ifBlank { "未知艺术家" }} · ${track.album.ifBlank { "未知专辑" }}")
-        Text(track.audioQuality.summary(), style = MiuixTheme.textStyles.body2)
+        Text("${track.artists.joinToString().ifBlank { "未知艺术家" }} · ${track.album.ifBlank { "未知专辑" }}", style = MiuixTheme.textStyles.body2, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text("${track.audioQuality.summary()} · ${track.filePath}", maxLines = 1, overflow = TextOverflow.Ellipsis, style = MiuixTheme.textStyles.body2)
         track.error?.let { Text("${it.kind} · ${it.summary}") }
-        Text(track.filePath, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MiuixTheme.textStyles.body2)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Button(
-                modifier = Modifier.testTag("local-track-play-${track.id}"),
+                modifier = Modifier.height(34.dp).testTag("local-track-play-${track.id}"),
                 enabled = onPlayTrack != null,
                 colors = ButtonDefaults.buttonColorsPrimary(),
                 onClick = { onPlayTrack?.invoke(track) },
             ) { Text("播放") }
             Button(
-                modifier = Modifier.testTag("local-track-next-${track.id}"),
+                modifier = Modifier.height(34.dp).testTag("local-track-next-${track.id}"),
                 enabled = onPlayNextTrack != null,
                 onClick = { onPlayNextTrack?.invoke(track) },
             ) { Text("下一首") }
             Button(
-                modifier = Modifier.testTag("local-track-queue-${track.id}"),
+                modifier = Modifier.height(34.dp).testTag("local-track-queue-${track.id}"),
                 enabled = onQueueTrack != null,
                 onClick = { onQueueTrack?.invoke(track) },
-            ) { Text("加入队列") }
+            ) { Text("加入播放队列") }
         }
         HorizontalDivider()
     }

@@ -3,24 +3,85 @@ package com.qing.hachimi.desktop
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.v2.runComposeUiTest
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
+import java.nio.file.Path
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
+import java.nio.file.Files
 import top.yukonga.miuix.kmp.theme.ColorSchemeMode
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.ThemeController
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class LocalMusicScreenTest {
+    @OptIn(ExperimentalTestApi::class)
+    @Test
+    fun `local search filters results independently of stale browse selection`() = runComposeUiTest {
+        val root = Files.createTempDirectory("local-search-test")
+        val store = LocalMusicStore(root.resolve("library.db"))
+        val registeredRoot = store.registerRoot(root)
+        val first = testTrack("first", "Jazz Track", "Blue Group", "Blue Album")
+        val second = testTrack("second", "Rock Track", "Red Group", "Red Album")
+        store.saveTrack(registeredRoot.path, "fixture", first)
+        store.saveTrack(registeredRoot.path, "fixture", second)
+        val viewModel = LocalMusicViewModel(store, mainDispatcher = Dispatchers.Unconfined)
+        try {
+            viewModel.setSearchFilter("stale")
+            viewModel.setFormatFilter("FLAC")
+            viewModel.setArtistFilter("stale")
+            viewModel.setAlbumFilter("stale")
+            viewModel.setAlbumTracks(listOf(first))
+            viewModel.setFolderFilter(root.resolve("other").toString())
+            setContent {
+                MiuixTheme(controller = ThemeController(ColorSchemeMode.System)) {
+                    LocalLibrarySearchControls(viewModel, playerViewModel = null)
+                }
+            }
+            onNodeWithText("2 / 2 首").assertIsDisplayed()
+            onNodeWithTag("local-track-first").assertIsDisplayed()
+            onNodeWithTag("local-track-second").assertIsDisplayed()
+            onNodeWithTag("local-music-search").performTextInput("rock")
+            for (tag in listOf("local-music-format-filter", "local-music-artist-filter", "local-music-album-filter")) {
+                onNodeWithTag(tag).performTextInput("no-match")
+                onNodeWithText("0 / 2 首").assertIsDisplayed()
+                onAllNodesWithTag("local-track-second").assertCountEquals(0)
+                onNodeWithTag(tag).performTextClearance()
+            }
+            onNodeWithTag("local-music-format-filter").performTextInput("mp3")
+            onNodeWithTag("local-music-artist-filter").performTextInput("red")
+            onNodeWithTag("local-music-album-filter").performTextInput("red")
+            onNodeWithText("1 / 2 首").assertIsDisplayed()
+            onNodeWithTag("local-track-second").assertIsDisplayed()
+            onAllNodesWithTag("local-track-first").assertCountEquals(0)
+            onNodeWithTag("local-music-play-filtered").assertIsNotEnabled()
+            onNodeWithTag("local-music-queue-filtered").assertIsNotEnabled()
+            assertEquals("stale", viewModel.state.value.searchFilter)
+        } finally {
+            runBlocking { viewModel.shutdown() }
+        }
+    }
+
     @OptIn(ExperimentalTestApi::class)
     @Test
     fun `browse tabs expose album artist song and folder views`() = runComposeUiTest {
@@ -115,7 +176,7 @@ class LocalMusicScreenTest {
 
     @OptIn(ExperimentalTestApi::class)
     @Test
-    fun `local music screen exposes scan controls and filters lazily rendered rows`() = runComposeUiTest {
+    fun `local music browse keeps playback and lazy rows without search or scan controls`() = runComposeUiTest {
         val first = testTrack("first", "Jazz Track", "Blue Group", "Blue Album")
         val second = testTrack("second", "Rock Track", "Red Group", "Red Album")
         val bulkTracks = (0 until 1_200).map { index ->
@@ -153,27 +214,109 @@ class LocalMusicScreenTest {
             }
         }
 
-        onNodeWithTag("local-music-add-root").assertIsDisplayed()
-        onNodeWithTag("local-music-scan").assertIsDisplayed()
+        onAllNodesWithTag("local-music-add-root").assertCountEquals(0)
+        onAllNodesWithTag("local-music-scan").assertCountEquals(0)
+        onAllNodesWithTag("local-music-search").assertCountEquals(0)
+        onNodeWithTag("local-music-shuffle").performClick()
+        assertEquals(state.tracks.map(LocalTrack::id).toSet(), startedTracks?.map(LocalTrack::id)?.toSet())
+        assertEquals(state.tracks.size, startedTracks?.size)
         onNodeWithTag("local-album-grid").assertIsDisplayed()
         onNodeWithTag("local-browse-songs").performClick()
         onNodeWithTag("local-music-table").assertIsDisplayed()
-        onNodeWithTag("local-music-search").assertIsDisplayed()
-        onNodeWithTag("local-music-watch-${"C:\\fixture".hashCode()}").assertIsDisplayed()
-        onNodeWithTag("local-music-play-filtered").performClick()
-        assertEquals(1_202, startedTracks?.size)
         onAllNodesWithTag("local-track-bulk-1199").assertCountEquals(0)
-        onNodeWithTag("local-music-artist-filter").performTextInput("Blue")
+        onNodeWithTag("local-browse-albums").performClick()
+        onNodeWithTag("local-album-${first.pathKey.hashCode()}").performClick()
+        assertEquals("Blue Album", state.albumFilter)
         onNodeWithText("Jazz Track").assertIsDisplayed()
         onNodeWithTag("local-track-play-first").performClick()
         assertEquals("first", playedTrack?.id)
         onAllNodesWithText("Rock Track").assertCountEquals(0)
-        assertEquals(1, state.visibleTracks.size)
-        onNodeWithTag("local-music-search").performTextInput("Rock")
-        assertEquals(0, state.visibleTracks.size)
-        onNodeWithTag("local-browse-albums").performClick()
-        onNodeWithTag("local-album-${first.pathKey.hashCode()}").performClick()
-        assertEquals("Blue Album", state.albumFilter)
+    }
+
+    @OptIn(ExperimentalTestApi::class)
+    @Test
+    fun `library scan controls fit within 400dp without overlap`(@TempDir root: Path) = runComposeUiTest {
+        val viewModel = LocalMusicViewModel(
+            LocalMusicStore(root.resolve("library.db")),
+            mainDispatcher = Dispatchers.Unconfined,
+        )
+        try {
+            setContent {
+                MiuixTheme(controller = ThemeController(ColorSchemeMode.System)) {
+                    Box(Modifier.width(400.dp).testTag("local-scan-controls-parent")) {
+                        LocalLibraryScanControls(viewModel)
+                    }
+                }
+            }
+
+            assertControlsFitWithinParent(
+                onNodeWithTag("local-scan-controls-parent"),
+                listOf(
+                    onNodeWithTag("local-music-add-root"),
+                    onNodeWithTag("local-music-scan"),
+                    onNodeWithTag("local-music-hash-duplicates"),
+                    onNodeWithTag("local-music-upgrade-preview"),
+                ),
+            )
+        } finally {
+            runBlocking { viewModel.shutdown() }
+        }
+    }
+
+    @OptIn(ExperimentalTestApi::class)
+    @Test
+    fun `library search controls fit within 400dp without overlap`(@TempDir root: Path) = runComposeUiTest {
+        val viewModel = LocalMusicViewModel(
+            LocalMusicStore(root.resolve("library.db")),
+            mainDispatcher = Dispatchers.Unconfined,
+        )
+        try {
+            setContent {
+                MiuixTheme(controller = ThemeController(ColorSchemeMode.System)) {
+                    Box(Modifier.width(400.dp).testTag("local-search-controls-parent")) {
+                        LocalLibrarySearchControls(viewModel, playerViewModel = null)
+                    }
+                }
+            }
+
+            assertControlsFitWithinParent(
+                onNodeWithTag("local-search-controls-parent"),
+                listOf(
+                    onNodeWithTag("local-music-search"),
+                    onNodeWithTag("local-music-format-filter"),
+                    onNodeWithTag("local-music-artist-filter"),
+                    onNodeWithTag("local-music-album-filter"),
+                    onNodeWithTag("local-music-play-filtered"),
+                    onNodeWithTag("local-music-queue-filtered"),
+                ),
+            )
+        } finally {
+            runBlocking { viewModel.shutdown() }
+        }
+    }
+
+    private fun assertControlsFitWithinParent(
+        parent: SemanticsNodeInteraction,
+        controls: List<SemanticsNodeInteraction>,
+    ) {
+        val parentBounds = parent.fetchSemanticsNode().boundsInRoot
+        val controlBounds = controls.map { it.fetchSemanticsNode().boundsInRoot }
+
+        controlBounds.forEachIndexed { index, bounds ->
+            assertTrue(
+                bounds.left >= parentBounds.left && bounds.top >= parentBounds.top &&
+                    bounds.right <= parentBounds.right && bounds.bottom <= parentBounds.bottom,
+                "Control $index ($bounds) is outside parent bounds $parentBounds",
+            )
+        }
+
+        controlBounds.forEachIndexed { index, bounds ->
+            controlBounds.drop(index + 1).forEach { other ->
+                val overlaps = bounds.left < other.right && other.left < bounds.right &&
+                    bounds.top < other.bottom && other.top < bounds.bottom
+                assertTrue(!overlaps, "Controls overlap: $bounds and $other")
+            }
+        }
     }
 
     private fun testTrack(id: String, title: String, artist: String, album: String) = LocalTrack(

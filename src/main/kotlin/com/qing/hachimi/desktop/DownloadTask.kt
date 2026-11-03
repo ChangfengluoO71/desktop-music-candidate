@@ -73,6 +73,8 @@ data class DesktopSettings(
     val network: DesktopNetworkSettings = DesktopNetworkSettings(),
     val audioOutputMode: AudioOutputMode = AudioOutputMode.SHARED,
     val reducedMotion: Boolean = false,
+    /** Whether the desktop navigation sidebar is currently collapsed. */
+    val sidebarCollapsed: Boolean = false,
     val immersiveBackdropSource: ImmersiveBackdropSource = ImmersiveBackdropSource.ALBUM_ART,
     val immersiveBackdropMaterial: ImmersiveBackdropMaterial = ImmersiveBackdropMaterial.SOFT_FOCUS,
     val immersiveBackdropStrength: Int = 50,

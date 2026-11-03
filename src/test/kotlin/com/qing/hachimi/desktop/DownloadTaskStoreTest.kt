@@ -102,9 +102,28 @@ class DownloadTaskStoreTest {
         val store = DownloadTaskStore(file)
 
         assertEquals(false, store.load().settings.reducedMotion)
-        store.save(emptyList(), DesktopSettings(defaultDownloadDirectory = root.toString(), reducedMotion = true))
+        assertEquals(false, store.load().settings.sidebarCollapsed)
+        store.save(
+            emptyList(),
+            DesktopSettings(defaultDownloadDirectory = root.toString(), reducedMotion = true, sidebarCollapsed = true),
+        )
 
         assertEquals(true, store.load().settings.reducedMotion)
+        assertEquals(true, store.load().settings.sidebarCollapsed)
+    }
+
+    @Test
+    fun `legacy settings without sidebar preference default to expanded`() {
+        val root = Files.createTempDirectory("dmc-task-store-legacy-sidebar")
+        val file = root.resolve("tasks.json")
+        Files.writeString(
+            file,
+            """{"schemaVersion":2,"tasks":[],"settings":{"reducedMotion":true}}""",
+        )
+
+        val settings = DownloadTaskStore(file).load().settings
+        assertTrue(settings.reducedMotion)
+        assertFalse(settings.sidebarCollapsed)
     }
 
     @Test

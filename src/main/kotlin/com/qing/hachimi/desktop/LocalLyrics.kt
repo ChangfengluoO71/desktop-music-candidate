@@ -57,11 +57,56 @@ object LocalLyricsParser {
 
 enum class LyricVariant { ORIGINAL, TRANSLATION, ROMANIZATION }
 
+data class LyricPresentation(
+    val timedLines: List<TimedLyricLine> = emptyList(),
+    val unsynchronizedLines: List<String> = emptyList(),
+    val credits: List<String> = emptyList(),
+) {
+    fun currentLineIndex(positionMillis: Long): Int = timedLines.indexOfLast { it.timeMillis <= positionMillis }
+    val isEmpty: Boolean get() = timedLines.isEmpty() && unsynchronizedLines.isEmpty() && credits.isEmpty()
+}
+
+private const val creditRole = "作词人|作詞人|作词|作詞|作曲人|作曲|编曲|編曲|制作人|製作人|制作|製作|歌手|艺术家|藝術家|专辑|專輯|lyricist|lyrics by|composer|composed by|arranger|arranged by|producer|produced by|artist|album"
+private val creditLabel = Regex(
+    """^(?:$creditRole)(?:\s*[/／]\s*(?:$creditRole))*\s*[:：]\s*\S.*$""",
+    RegexOption.IGNORE_CASE,
+)
+private val lrcTimestamp = Regex("""^(?:\[\d{1,3}:[0-5]\d(?:[.:]\d{1,3})?])+""")
+private val lrcMetadata = Regex("""^\[[A-Za-z]+:[^]]*]$""")
+
+data class UntimedLyricContent(
+    val lines: List<String> = emptyList(),
+    val credits: List<String> = emptyList(),
+)
+
+private fun untimedContent(content: String): UntimedLyricContent {
+    val plain = content.removePrefix("\uFEFF").lineSequence().map(String::trim)
+        .filter { it.isNotEmpty() && !lrcTimestamp.containsMatchIn(it) && !lrcMetadata.matches(it) }
+        .toList()
+    return UntimedLyricContent(plain.filterNot { creditLabel.matches(it) }, plain.filter { creditLabel.matches(it) })
+}
+
+private fun presentation(timed: List<TimedLyricLine>, untimed: UntimedLyricContent): LyricPresentation =
+    LyricPresentation(
+        timedLines = timed.filterNot { creditLabel.matches(it.text) },
+        unsynchronizedLines = untimed.lines,
+        credits = timed.map { it.text }.filter { creditLabel.matches(it) }.distinct() + untimed.credits,
+    )
+
 data class LocalLyricsBundle(
     val original: List<TimedLyricLine> = emptyList(),
     val translation: List<TimedLyricLine> = emptyList(),
     val romanization: List<TimedLyricLine> = emptyList(),
+    val originalUntimed: UntimedLyricContent = UntimedLyricContent(),
+    val translationUntimed: UntimedLyricContent = UntimedLyricContent(),
+    val romanizationUntimed: UntimedLyricContent = UntimedLyricContent(),
 ) {
+    fun presentation(variant: LyricVariant): LyricPresentation = when (variant) {
+        LyricVariant.ORIGINAL -> presentation(original, originalUntimed)
+        LyricVariant.TRANSLATION -> presentation(translation, translationUntimed)
+        LyricVariant.ROMANIZATION -> presentation(romanization, romanizationUntimed)
+    }
+
     fun lines(variant: LyricVariant): List<TimedLyricLine> = when (variant) {
         LyricVariant.ORIGINAL -> original
         LyricVariant.TRANSLATION -> translation
@@ -92,21 +137,32 @@ class LocalLyricsLoader(
         val parent = audioPath.parent ?: return LocalLyricsBundle()
         val base = parent.resolve(stem)
         val embedded = runCatching { embeddedLyricsReader(audioPath) }.getOrNull().orEmpty()
-        val original = parseIfPresent(embedded).ifEmpty { parseSidecar(base.resolveSibling("$stem.lrc")) }
+            .takeIf { it.length <= MAX_LYRICS_BYTES }.orEmpty()
+        val embeddedTimed = parseIfPresent(embedded)
+        val sidecar = if (embeddedTimed.isEmpty()) readSidecar(base.resolveSibling("$stem.lrc")) else ""
+        val sidecarTimed = parseIfPresent(sidecar)
+        val originalContent = if (embeddedTimed.isNotEmpty() || sidecarTimed.isEmpty() && embedded.isNotBlank()) embedded else sidecar
+        val original = if (embeddedTimed.isNotEmpty()) embeddedTimed else sidecarTimed
+        val translationContent = readSidecar(base.resolveSibling("$stem.tl.lrc"))
+        val romanizationContent = readSidecar(base.resolveSibling("$stem.roma.lrc"))
+        val translation = parseIfPresent(translationContent)
+        val romanization = parseIfPresent(romanizationContent)
         return LocalLyricsBundle(
             original = original,
-            translation = parseSidecar(base.resolveSibling("$stem.tl.lrc")),
-            romanization = parseSidecar(base.resolveSibling("$stem.roma.lrc")),
+            translation = translation,
+            romanization = romanization,
+            originalUntimed = untimedContent(originalContent),
+            translationUntimed = untimedContent(translationContent),
+            romanizationUntimed = untimedContent(romanizationContent),
         )
     }
 
-    private fun parseSidecar(path: Path): List<TimedLyricLine> {
-        if (!Files.isRegularFile(path)) return emptyList()
-        val content = runCatching {
-            if (Files.size(path) > MAX_LYRICS_BYTES) return emptyList()
+    private fun readSidecar(path: Path): String {
+        if (!Files.isRegularFile(path)) return ""
+        return runCatching {
+            if (Files.size(path) > MAX_LYRICS_BYTES) return ""
             Files.readString(path, StandardCharsets.UTF_8)
-        }.getOrNull() ?: return emptyList()
-        return parseIfPresent(content)
+        }.getOrNull() ?: ""
     }
 
     private fun parseIfPresent(content: String): List<TimedLyricLine> =

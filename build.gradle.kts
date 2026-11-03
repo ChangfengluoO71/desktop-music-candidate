@@ -208,6 +208,16 @@ tasks.register<JavaExec>("runLocalMusicGuiAcceptance") {
     )
 }
 
+tasks.register<JavaExec>("runR4WindowAcceptance") {
+    group = "verification"
+    description = "Runs the test-only native HachimiDesktopApp resize acceptance harness."
+    dependsOn(tasks.named("testClasses"))
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("com.qing.hachimi.desktop.R4WindowAcceptanceMainKt")
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
+    systemProperty("hachimi.gui.acceptance.evidenceDir", layout.buildDirectory.dir("gui-acceptance-evidence").get().asFile.absolutePath)
+}
+
 compose.desktop {
     application {
         mainClass = "com.qing.hachimi.desktop.MainKt"

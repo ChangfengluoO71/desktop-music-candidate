@@ -1,5 +1,11 @@
 package com.qing.hachimi.desktop
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.TooltipArea
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.Image
@@ -36,18 +42,31 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.SaveableStateHolder
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.decodeToImageBitmap
 import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogWindow
 import androidx.compose.ui.window.Window
@@ -55,6 +74,7 @@ import androidx.compose.ui.window.WindowPlacement
 import androidx.compose.ui.window.WindowState
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import androidx.compose.ui.window.rememberDialogState
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.async
 import kotlinx.coroutines.Dispatchers
@@ -98,6 +118,7 @@ fun main() = application {
         DesktopInstanceLock.tryAcquire(appDataDirectory.resolve("instance.lock"))
     }
     val artworkRepository = remember { LocalArtworkRepository() }
+    DisposableEffect(artworkRepository) { onDispose { artworkRepository.close() } }
     val installationDirectory = remember { desktopInstallationDirectory() }
     val viewModel = remember(instanceLock) {
         instanceLock?.let { DesktopViewModel.createDefault(appDataDirectory) }
@@ -195,6 +216,9 @@ fun main() = application {
     var closeRequested by remember { mutableStateOf(false) }
     var closing by remember { mutableStateOf(false) }
     val mainWindowState = rememberWindowState(width = 1280.dp, height = 820.dp)
+    val immersiveWindowState = rememberWindowState(placement = WindowPlacement.Fullscreen)
+    var immersiveWindowOpen by remember { mutableStateOf(false) }
+    var immersiveLayout by remember { mutableStateOf(ImmersivePlayerLayout.COVER_AND_LYRICS) }
 
     Window(
         icon = appIcon,
@@ -226,6 +250,8 @@ fun main() = application {
                 updaterPreferencesStore,
                 installerHandoff,
                 exitApplicationNow,
+                onOpenImmersive = { immersiveWindowOpen = true },
+                onCloseImmersive = { immersiveWindowOpen = false },
             )
         }
         if (closeRequested && viewModel != null) {
@@ -277,6 +303,41 @@ fun main() = application {
             }
         }
     }
+
+    if (immersiveWindowOpen && playerViewModel != null && viewModel != null) {
+        Window(
+            onCloseRequest = { immersiveWindowOpen = false },
+            title = DesktopProductIdentity.DISPLAY_NAME + " · 沉浸播放",
+            state = immersiveWindowState,
+            onPreviewKeyEvent = { event ->
+                if (event.type == KeyEventType.KeyDown && event.key == Key.Escape) {
+                    immersiveWindowOpen = false
+                    true
+                } else false
+            },
+            undecorated = true,
+            resizable = false,
+        ) {
+            MiuixTheme(controller = remember { ThemeController(ColorSchemeMode.System) }) {
+                val immersiveViewModel = viewModel
+                val immersiveSettings by immersiveViewModel.settings.collectAsState()
+                ImmersivePlayerScreen(
+                    viewModel = playerViewModel,
+                    artworkRepository = artworkRepository,
+                    layout = immersiveLayout,
+                    onLayoutChange = { immersiveLayout = it },
+                    reducedMotion = immersiveSettings?.reducedMotion ?: false,
+                    backdropSource = immersiveSettings?.immersiveBackdropSource ?: ImmersiveBackdropSource.ALBUM_ART,
+                    backdropMaterial = immersiveSettings?.immersiveBackdropMaterial ?: ImmersiveBackdropMaterial.SOFT_FOCUS,
+                    backdropStrength = immersiveSettings?.immersiveBackdropStrength ?: 50,
+                    backdropImagePath = immersiveSettings?.immersiveBackdropImagePath ?: "",
+                    backdropSolidColor = immersiveSettings?.immersiveBackdropSolidColor ?: "#111820",
+                    onExit = { immersiveWindowOpen = false },
+                    onToggleFullscreen = {},
+                )
+            }
+        }
+    }
 }
 
 @Composable
@@ -312,9 +373,16 @@ internal fun HachimiDesktopApp(
     updaterPreferencesStore: UpdaterPreferencesStore? = null,
     installerHandoff: InstallerHandoff? = null,
     onExitAfterUpdate: () -> Unit = {},
+    onOpenImmersive: () -> Unit = {},
+    onCloseImmersive: () -> Unit = {},
+    layoutBoundsReporter: ((String, Rect) -> Unit)? = null,
 ) {
     val ui by viewModel.ui.collectAsState()
     val settings by viewModel.settings.collectAsState()
+    val sidebarCollapsed = settings.sidebarCollapsed
+    var queueOpen by remember { mutableStateOf(false) }
+    var searchTab by remember { mutableStateOf(0) }
+    val searchStateHolder = rememberSaveableStateHolder()
     val tasks by viewModel.tasks.collectAsState()
     val collectionImports by viewModel.collectionImports.collectAsState()
     val persistenceWarning by viewModel.persistenceWarning.collectAsState()
@@ -329,6 +397,7 @@ internal fun HachimiDesktopApp(
         installerHandoff?.reconcileRunningVersion(BuildInfo.VERSION) ?: PendingVersionStatus.NONE
     }
     val updateScope = rememberCoroutineScope()
+    val sidebarScope = rememberCoroutineScope()
     val persistUpdaterPreferences: (UpdaterPreferences) -> Unit = { updated ->
         updaterPreferences = updated
         runCatching { updaterPreferencesStore?.save(updated) }
@@ -374,55 +443,15 @@ internal fun HachimiDesktopApp(
         }
     }
     val controller = remember { ThemeController(ColorSchemeMode.System) }
-    val immersiveWindowState = remember { ImmersiveWindowState() }
-    var immersive by remember { mutableStateOf(false) }
-    val enterImmersive = {
-        if (!immersive) {
-            windowState?.let { immersiveWindowState.enter(it.placement, it.size) }
-            immersive = true
-        }
-    }
-    val exitImmersive = {
-        immersiveWindowState.exit()?.let { saved ->
-            windowState?.placement = saved.placement
-            windowState?.size = saved.size
-        }
-        immersive = false
-    }
-    val toggleImmersiveFullscreen = {
-        val currentWindow = windowState
-        if (currentWindow != null) {
-            if (currentWindow.placement == WindowPlacement.Fullscreen) {
-                immersiveWindowState.savedPlacement()?.let { saved ->
-                    currentWindow.placement = saved.placement
-                    currentWindow.size = saved.size
-                }
-            } else {
-                currentWindow.placement = WindowPlacement.Fullscreen
-            }
-        }
-    }
+    val enterImmersive = onOpenImmersive
+    val exitImmersive = onCloseImmersive
+    val toggleImmersiveFullscreen = onOpenImmersive
     val sharedArtworkRepository = artworkRepository ?: remember { LocalArtworkRepository() }
-    DisposableEffect(sharedArtworkRepository) {
-        onDispose { sharedArtworkRepository.close() }
+    DisposableEffect(sharedArtworkRepository, artworkRepository) {
+        onDispose { if (artworkRepository == null) sharedArtworkRepository.close() }
     }
 
     MiuixTheme(controller = controller) {
-        if (immersive && playerViewModel != null) {
-            ImmersivePlayerScreen(
-                viewModel = playerViewModel,
-                artworkRepository = sharedArtworkRepository,
-                layout = ImmersivePlayerLayout.COVER_AND_LYRICS,
-                reducedMotion = settings.reducedMotion,
-                backdropSource = settings.immersiveBackdropSource,
-                backdropMaterial = settings.immersiveBackdropMaterial,
-                backdropStrength = settings.immersiveBackdropStrength,
-                backdropImagePath = settings.immersiveBackdropImagePath,
-                backdropSolidColor = settings.immersiveBackdropSolidColor,
-                onExit = exitImmersive,
-                onToggleFullscreen = toggleImmersiveFullscreen,
-            )
-        } else {
         Row(
             Modifier.fillMaxSize()
                 .then(
@@ -432,40 +461,42 @@ internal fun HachimiDesktopApp(
                 .background(MiuixTheme.colorScheme.background),
         ) {
             Column(
-                Modifier.width(204.dp).fillMaxHeight().padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                Modifier.width(if (sidebarCollapsed) 68.dp else 200.dp)
+                    .fillMaxHeight()
+                    .background(MiuixTheme.colorScheme.surface.copy(alpha = 0.82f))
+                    .padding(horizontal = if (sidebarCollapsed) 8.dp else 16.dp, vertical = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text(DesktopProductIdentity.DISPLAY_NAME, style = MiuixTheme.textStyles.headline1)
-                Text("Independent desktop candidate", style = MiuixTheme.textStyles.body2)
-                Spacer(Modifier.height(8.dp))
-                NavigationButton("发现", ui.page == DesktopPage.DISCOVERY, Modifier.testTag("nav-discovery")) {
+                if (!sidebarCollapsed) Text("DMC", style = MiuixTheme.textStyles.headline1)
+                Button(modifier = Modifier.fillMaxWidth().testTag("sidebar-toggle"), onClick = { sidebarScope.launch { viewModel.setSidebarCollapsed(!sidebarCollapsed) } }) {
+                    Text(if (sidebarCollapsed) "»" else "«")
+                }
+                if (!sidebarCollapsed) Text("浏览", style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.62f))
+                NavigationButton(sidebarCollapsed, "发现", "⌂", ui.page == DesktopPage.DISCOVERY, Modifier.testTag("nav-discovery")) {
                     viewModel.navigate(DesktopPage.DISCOVERY)
                 }
-                NavigationButton("歌曲搜索", ui.page == DesktopPage.SEARCH) {
+                NavigationButton(sidebarCollapsed, "歌曲搜索", "⌕", ui.page == DesktopPage.SEARCH) {
                     viewModel.navigate(DesktopPage.SEARCH)
                 }
-                NavigationButton("歌单 / 专辑", ui.page == DesktopPage.COLLECTIONS) {
+                NavigationButton(sidebarCollapsed, "歌单 / 专辑", "▤", ui.page == DesktopPage.COLLECTIONS) {
                     viewModel.navigate(DesktopPage.COLLECTIONS)
                 }
-                NavigationButton("下载管理", ui.page == DesktopPage.DOWNLOADS) {
+                if (!sidebarCollapsed) Text("我的音乐", style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.62f))
+                NavigationButton(sidebarCollapsed, "下载管理", "⇩", ui.page == DesktopPage.DOWNLOADS) {
                     viewModel.navigate(DesktopPage.DOWNLOADS)
                 }
-                NavigationButton("本地音乐", ui.page == DesktopPage.LOCAL_MUSIC, Modifier.testTag("nav-local-music")) {
+                NavigationButton(sidebarCollapsed, "本地音乐", "♫", ui.page == DesktopPage.LOCAL_MUSIC, Modifier.testTag("nav-local-music")) {
                     viewModel.navigate(DesktopPage.LOCAL_MUSIC)
                 }
-                NavigationButton("正在播放", ui.page == DesktopPage.NOW_PLAYING, Modifier.testTag("nav-now-playing")) {
-                    viewModel.navigate(DesktopPage.NOW_PLAYING)
-                }
-                NavigationButton("设置", ui.page == DesktopPage.SETTINGS) {
+                Spacer(Modifier.weight(1f))
+                NavigationButton(sidebarCollapsed, "设置", "⚙", ui.page == DesktopPage.SETTINGS) {
                     viewModel.navigate(DesktopPage.SETTINGS)
                 }
-                Spacer(Modifier.weight(1f))
-                Text("仅保存你有权下载的内容。")
             }
-            Box(Modifier.fillMaxHeight().width(1.dp).background(MiuixTheme.colorScheme.primary.copy(alpha = 0.15f)))
+            Box(Modifier.fillMaxHeight().width(1.dp).background(MiuixTheme.colorScheme.onSurface.copy(alpha = 0.08f)))
             Column(
-                Modifier.weight(1f).fillMaxHeight().padding(horizontal = 26.dp, vertical = 20.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                Modifier.weight(1f).fillMaxHeight().padding(horizontal = 30.dp, vertical = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 Row(
                     Modifier.fillMaxWidth(),
@@ -482,7 +513,19 @@ internal fun HachimiDesktopApp(
                             DesktopPage.NOW_PLAYING -> "正在播放"
                             DesktopPage.SETTINGS -> "设置"
                         },
-                        style = MiuixTheme.textStyles.headline1,
+                        style = MiuixTheme.textStyles.headline2,
+                    )
+                    Text(
+                        when (ui.page) {
+                            DesktopPage.DISCOVERY -> "推荐内容与个人歌单"
+                            DesktopPage.SEARCH -> "按歌名、歌手或专辑查找内容"
+                            DesktopPage.COLLECTIONS -> "预览并批量加入下载队列"
+                            DesktopPage.DOWNLOADS -> "查看进度、失败与历史记录"
+                            DesktopPage.LOCAL_MUSIC -> "管理已索引的本地音频"
+                            DesktopPage.NOW_PLAYING -> "控制当前播放与队列"
+                            DesktopPage.SETTINGS -> "下载、网络与播放偏好"
+                        },
+                        style = MiuixTheme.textStyles.body2,
                     )
                     updateState?.value?.let { state ->
                         UpdateStatusIndicator(state) { updateDetailsOpen = true }
@@ -493,11 +536,16 @@ internal fun HachimiDesktopApp(
                 persistenceWarning?.let {
                     Text(it, color = MiuixTheme.colorScheme.primary)
                 }
-                ui.actionMessage?.let { Text(it) }
-                Box(Modifier.weight(1f).fillMaxWidth()) {
+                ui.actionMessage?.let { Text(it, color = MiuixTheme.colorScheme.primary) }
+                // The page viewport is bounded; each page owns its LazyColumn/verticalScroll.
+                Box(
+                    Modifier.weight(1f).fillMaxWidth().testTag("page-viewport")
+                         .onGloballyPositioned { layoutBoundsReporter?.invoke("page-viewport", it.boundsInWindow()) },
+                    contentAlignment = Alignment.TopStart,
+                ) {
                     when (ui.page) {
                         DesktopPage.DISCOVERY -> DiscoveryScreen(viewModel, ui, settings)
-                        DesktopPage.SEARCH -> SearchScreen(viewModel, ui, settings)
+                        DesktopPage.SEARCH -> SearchScreen(viewModel, ui, settings, localMusicViewModel, playerViewModel, searchTab, { searchTab = it }, searchStateHolder)
                         DesktopPage.COLLECTIONS -> CollectionScreen(viewModel, ui, settings, tasks, collectionImports)
                         DesktopPage.DOWNLOADS -> DownloadsScreen(viewModel, tasks, collectionImports)
                         DesktopPage.LOCAL_MUSIC -> if (localMusicViewModel != null) LocalMusicScreen(localMusicViewModel, playerViewModel, sharedArtworkRepository)
@@ -509,6 +557,7 @@ internal fun HachimiDesktopApp(
                         DesktopPage.SETTINGS -> SettingsScreen(
                             viewModel = viewModel,
                             settings = settings,
+                            localMusicViewModel = localMusicViewModel,
                             diagnosticsEnabled = ui.downloadDiagnosticsEnabled,
                             updaterState = updateState?.value,
                             autoDownloadPreview = updaterPreferences.autoDownloadPreview,
@@ -530,17 +579,49 @@ internal fun HachimiDesktopApp(
                     }
                 }
                 playerViewModel?.let { player ->
-                    PlayerMiniBar(
-                        player,
-                        onOpenNowPlaying = { viewModel.navigate(DesktopPage.NOW_PLAYING) },
-                        artworkRepository = sharedArtworkRepository,
-                        onOpenImmersive = enterImmersive,
-                    )
+                    Box(
+                        Modifier.fillMaxWidth()
+                            .padding(top = 10.dp)
+                            .background(MiuixTheme.colorScheme.surface.copy(alpha = 0.72f))
+                            .onGloballyPositioned { layoutBoundsReporter?.invoke("mini-player", it.boundsInWindow()) },
+                    ) {
+                        PlayerMiniBar(
+                            player,
+                            onOpenNowPlaying = { viewModel.navigate(DesktopPage.NOW_PLAYING) },
+                            onOpenQueue = { queueOpen = true },
+                            artworkRepository = sharedArtworkRepository,
+                            onOpenImmersive = enterImmersive,
+                        )
+                    }
+                }
+            }
+        }
+        if (queueOpen && playerViewModel != null) {
+            val playerState by playerViewModel.state.collectAsState()
+            DialogWindow(
+                onCloseRequest = { queueOpen = false },
+                title = "播放队列",
+                state = rememberDialogState(width = 480.dp, height = 600.dp),
+            ) {
+                Column(Modifier.fillMaxSize().background(MiuixTheme.colorScheme.background).padding(16.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("播放队列 · ${playerState.playback.queue.size} 首", style = MiuixTheme.textStyles.headline2)
+                        Spacer(Modifier.weight(1f))
+                        Button(onClick = { queueOpen = false }) { Text("关闭") }
+                    }
+                    Box(Modifier.weight(1f).fillMaxWidth().padding(top = 12.dp)) {
+                        PlayerQueueContent(
+                            playback = playerState.playback,
+                            onPlayIndex = playerViewModel::playQueueIndex,
+                            onMoveQueueItem = playerViewModel::moveQueueItem,
+                            onRemove = playerViewModel::removeFromQueue,
+                            onClear = playerViewModel::clearQueue,
+                        )
+                    }
                 }
             }
         }
         ui.artworkPreview?.let { ArtworkPreviewDialog(viewModel, it) }
-        }
         if (updateDetailsOpen && updateManager != null && updateState != null) {
             UpdateDetailsDialog(
                 state = updateState.value,
@@ -594,13 +675,43 @@ internal fun HachimiDesktopApp(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun NavigationButton(label: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    Button(
-        modifier = modifier.fillMaxWidth(),
-        colors = if (selected) ButtonDefaults.buttonColorsPrimary() else ButtonDefaults.buttonColors(),
-        onClick = onClick,
-    ) { Text(label) }
+internal fun NavigationButton(
+    collapsed: Boolean,
+    label: String,
+    icon: String,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    val focused by interaction.collectIsFocusedAsState()
+    val contentColor = if (selected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onBackground
+    val backgroundColor = when {
+        selected -> MiuixTheme.colorScheme.primary.copy(alpha = 0.14f)
+        hovered -> MiuixTheme.colorScheme.onBackground.copy(alpha = 0.07f)
+        else -> Color.Transparent
+    }
+    TooltipArea(tooltip = {
+        if (collapsed) Text(label, Modifier.clip(RoundedCornerShape(6.dp)).background(MiuixTheme.colorScheme.surface).padding(8.dp))
+    }) {
+        Row(
+            modifier.fillMaxWidth().height(42.dp).clip(RoundedCornerShape(6.dp))
+                .semantics { contentDescription = label; this.selected = selected }
+                .background(backgroundColor)
+                .then(if (focused) Modifier.border(1.dp, MiuixTheme.colorScheme.primary, RoundedCornerShape(6.dp)) else Modifier)
+                .hoverable(interaction)
+                .clickable(interactionSource = interaction, indication = null, role = Role.Button, onClick = onClick)
+                .padding(horizontal = if (collapsed) 0.dp else 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = if (collapsed) Arrangement.Center else Arrangement.spacedBy(10.dp),
+        ) {
+            Text(icon, color = contentColor)
+            if (!collapsed) Text(label, color = contentColor)
+        }
+    }
 }
 
 @Composable
@@ -642,7 +753,9 @@ internal fun DiscoveryScreen(viewModel: DesktopViewModel, ui: DesktopUiState, se
 private fun DiscoveryHome(viewModel: DesktopViewModel, ui: DesktopUiState) {
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Button(
-            modifier = Modifier.fillMaxWidth().testTag("discovery-daily"),
+            modifier = Modifier.fillMaxWidth()
+                .clip(RoundedCornerShape(10.dp))
+                .testTag("discovery-daily"),
             enabled = ui.session.status == SessionStatus.SIGNED_IN && !ui.dailyRecommendationsLoading,
             colors = ButtonDefaults.buttonColorsPrimary(),
             onClick = viewModel::loadDailyRecommendations,
@@ -666,18 +779,20 @@ private fun DiscoveryHome(viewModel: DesktopViewModel, ui: DesktopUiState) {
             Spacer(Modifier.weight(1f))
         } else {
             LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 190.dp),
+                columns = GridCells.Adaptive(minSize = 200.dp),
                 modifier = Modifier.weight(1f).fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 gridItems(ui.myPlaylists, key = { it.id }) { playlist ->
                     Button(
-                        modifier = Modifier.fillMaxWidth().testTag("discovery-playlist-${playlist.id}"),
+                        modifier = Modifier.fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .testTag("discovery-playlist-${playlist.id}"),
                         onClick = { viewModel.openUserPlaylist(playlist.id) },
                     ) {
                         Column(
-                            Modifier.fillMaxWidth().padding(10.dp),
+                            Modifier.fillMaxWidth().padding(8.dp),
                             verticalArrangement = Arrangement.spacedBy(7.dp),
                             horizontalAlignment = Alignment.Start,
                         ) {
@@ -685,7 +800,7 @@ private fun DiscoveryHome(viewModel: DesktopViewModel, ui: DesktopUiState) {
                                 viewModel = viewModel,
                                 url = playlist.coverUrl,
                                 tag = "artwork-thumbnail-playlist-${playlist.id}",
-                                modifier = Modifier.size(76.dp),
+                                modifier = Modifier.size(64.dp),
                                 onClick = { viewModel.previewArtwork(playlist.name, playlist.coverUrl) },
                             )
                             Text(playlist.name.ifBlank { "未命名歌单" }, style = MiuixTheme.textStyles.body1)
@@ -810,7 +925,10 @@ private fun DiscoverySongRow(
 ) {
     Column(Modifier.fillMaxWidth()) {
         Row(
-            Modifier.fillMaxWidth().padding(vertical = 8.dp),
+            Modifier.fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(MiuixTheme.colorScheme.surface.copy(alpha = 0.72f))
+                .padding(horizontal = 10.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -838,8 +956,33 @@ private fun DiscoverySongRow(
 }
 
 @Composable
-private fun SearchScreen(viewModel: DesktopViewModel, ui: DesktopUiState, settings: DesktopSettings) {
+private fun SearchScreen(
+    viewModel: DesktopViewModel,
+    ui: DesktopUiState,
+    settings: DesktopSettings,
+    localMusicViewModel: LocalMusicViewModel?,
+    playerViewModel: PlayerViewModel?,
+    selectedTab: Int,
+    onSelectTab: (Int) -> Unit,
+    searchStateHolder: SaveableStateHolder,
+) {
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(
+                colors = if (selectedTab == 0) ButtonDefaults.buttonColorsPrimary() else ButtonDefaults.buttonColors(),
+                onClick = { onSelectTab(0) },
+            ) { Text("在线") }
+            Button(
+                enabled = localMusicViewModel != null,
+                colors = if (selectedTab == 1) ButtonDefaults.buttonColorsPrimary() else ButtonDefaults.buttonColors(),
+                onClick = { onSelectTab(1) },
+            ) { Text("本地") }
+        }
+        if (selectedTab == 1 && localMusicViewModel != null) {
+            searchStateHolder.SaveableStateProvider("local-search") {
+                LocalLibrarySearchControls(localMusicViewModel, playerViewModel)
+            }
+        } else {
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
         TextField(
             value = ui.query,
@@ -884,13 +1027,16 @@ private fun SearchScreen(viewModel: DesktopViewModel, ui: DesktopUiState, settin
     HorizontalDivider()
     LazyColumn(
         Modifier.weight(1f).fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         items(ui.searchResults, key = { it.id }) { song ->
             Row(
-                Modifier.fillMaxWidth().padding(vertical = 9.dp),
+                Modifier.fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(MiuixTheme.colorScheme.surface.copy(alpha = 0.86f))
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Button(
                     onClick = { viewModel.toggleSelection(song.id) },
@@ -901,18 +1047,22 @@ private fun SearchScreen(viewModel: DesktopViewModel, ui: DesktopUiState, settin
                     viewModel = viewModel,
                     url = song.coverUrl,
                     tag = "artwork-thumbnail-search-${song.id}",
-                    modifier = Modifier.size(64.dp),
+                    modifier = Modifier.size(52.dp),
                     onClick = { viewModel.previewSongArtwork(song) },
                 )
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(song.name, style = MiuixTheme.textStyles.body1)
                     Text("${song.artists}  ·  ${song.album}  ·  #${song.id}", style = MiuixTheme.textStyles.body2)
                 }
-                Button(onClick = { viewModel.addSong(song) }) { Text("加入队列") }
+                Button(
+                    onClick = { viewModel.addSong(song) },
+                    colors = ButtonDefaults.buttonColors(),
+                ) { Text("加入队列") }
             }
             HorizontalDivider()
         }
     }
+        }
     }
 }
 
@@ -1106,7 +1256,10 @@ private fun CollectionScreen(
                 items(preview.items, key = { it.originalIndex }) { item ->
                     val song = item.song
                     Row(
-                        Modifier.fillMaxWidth().padding(vertical = 7.dp),
+                        Modifier.fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(MiuixTheme.colorScheme.surface.copy(alpha = 0.72f))
+                            .padding(horizontal = 10.dp, vertical = 5.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
@@ -1441,7 +1594,13 @@ private fun DownloadTask.matches(filter: TaskFilter): Boolean = when (filter) {
 @Composable
 private fun DownloadTaskRow(viewModel: DesktopViewModel, task: DownloadTask, imports: List<CollectionImport>) {
     val importNames = imports.filter { it.id in task.collectionImportIds }.map { it.sourceName }.distinct()
-    Column(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+    Column(
+        Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(MiuixTheme.colorScheme.surface.copy(alpha = 0.72f))
+            .padding(horizontal = 12.dp, vertical = 9.dp),
+        verticalArrangement = Arrangement.spacedBy(7.dp),
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text(task.songName, style = MiuixTheme.textStyles.body1)
@@ -1504,6 +1663,7 @@ internal fun SettingsScreen(
     installerMirrorTemplate: String? = null,
     onUpdateMirrorTemplatesChanged: ((String?, String?) -> Unit)? = null,
     onCheckForUpdates: (() -> Unit)? = null,
+    localMusicViewModel: LocalMusicViewModel? = null,
 ) {
     var directory by remember(settings.defaultDownloadDirectory) {
         mutableStateOf(settings.defaultDownloadDirectory)
@@ -1594,10 +1754,10 @@ internal fun SettingsScreen(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).testTag("settings-screen-scroll"),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Text(
-            if (settingsDraft == null) "有无效设置，修正后会自动保存。" else "设置会在修改后自动保存。",
-            color = if (settingsDraft == null) Color(0xFFFFC1B8) else MiuixTheme.colorScheme.primary,
-        )
+        if (settingsDraft == null) {
+            Text("有无效设置，修正后会自动保存。", color = Color(0xFFFFC1B8))
+        }
+        SettingsSection("沉浸播放") {
         Text("沉浸播放背景", style = MiuixTheme.textStyles.headline2)
         Text("背景来源")
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1679,6 +1839,11 @@ internal fun SettingsScreen(
         SettingToggle("减少动态效果", reducedMotion) { reducedMotion = it }
         Text("音频引擎：libmpv · Windows WASAPI 共享输出（固定）")
         Text("如果 libmpv 运行库或 Windows 音频设备不可用，播放器会显示错误，不会切换到其他后端。")
+        }
+        SettingsSection("本地音乐") {
+            localMusicViewModel?.let { LocalLibraryScanControls(it) }
+        }
+        SettingsSection("下载与媒体") {
         Text("默认下载目录", style = MiuixTheme.textStyles.headline2)
         Row(
             Modifier.fillMaxWidth(),
@@ -1782,6 +1947,8 @@ internal fun SettingsScreen(
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth().testTag("settings-cover-directory"),
             )
+        }
+        SettingsSection("网络") {
         Text("网络连接方式", style = MiuixTheme.textStyles.headline2)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             DesktopNetworkMode.entries.forEach { option ->
@@ -1828,6 +1995,8 @@ internal fun SettingsScreen(
             networkValidationError?.let { Text("代理设置无效：$it") }
         }
         Text("网络设置保存后需重启应用生效；当前已运行的请求会继续使用原路由。")
+        }
+        SettingsSection("应用更新") {
         Text("应用更新", style = MiuixTheme.textStyles.headline2)
         Text("版本 ${BuildInfo.VERSION} · ${if (BuildInfo.CHANNEL.equals("preview", true)) "Preview" else "Stable"}")
         Text("更新检查镜像")
@@ -1914,6 +2083,18 @@ internal fun SettingsScreen(
             }
         }
         Button(onClick = viewModel::openDiagnosticsFile) { Text("打开诊断文件") }
+        }
+    }
+}
+
+@Composable
+private fun SettingsSection(title: String, content: @Composable () -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Button(modifier = Modifier.testTag("settings-section-$title"), onClick = { expanded = !expanded }) {
+            Text(if (expanded) "▾ $title" else "▸ $title")
+        }
+        if (expanded) content()
     }
 }
 

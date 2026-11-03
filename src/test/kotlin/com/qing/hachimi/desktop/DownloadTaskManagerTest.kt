@@ -20,6 +20,32 @@ import kotlin.test.assertTrue
 
 class DownloadTaskManagerTest {
     @Test
+    fun `sidebar updates and settings drafts preserve each other`() = runBlocking {
+        val root = Files.createTempDirectory("hachimi-manager-sidebar")
+        val manager = manager(root, ControlledTransfer())
+        try {
+            val staleDraft = manager.settings.value.copy(reducedMotion = true)
+            manager.updateSidebarCollapsed(true)
+            manager.updateSettings(staleDraft)
+            assertTrue(manager.settings.value.sidebarCollapsed)
+            assertTrue(manager.settings.value.reducedMotion)
+            val persistedAfterDraft = DownloadTaskStore(root.resolve("tasks.json")).load().settings
+            assertTrue(persistedAfterDraft.sidebarCollapsed)
+            assertTrue(persistedAfterDraft.reducedMotion)
+
+            manager.updateSettings(manager.settings.value.copy(reducedMotion = false))
+            manager.updateSidebarCollapsed(false)
+            assertFalse(manager.settings.value.sidebarCollapsed)
+            assertFalse(manager.settings.value.reducedMotion)
+            val persisted = DownloadTaskStore(root.resolve("tasks.json")).load().settings
+            assertFalse(persisted.sidebarCollapsed)
+            assertFalse(persisted.reducedMotion)
+        } finally {
+            manager.shutdown()
+        }
+    }
+
+    @Test
     fun `queue advances and respects configured concurrency`() = runBlocking {
         val root = Files.createTempDirectory("hachimi-manager")
         val transfer = ControlledTransfer()

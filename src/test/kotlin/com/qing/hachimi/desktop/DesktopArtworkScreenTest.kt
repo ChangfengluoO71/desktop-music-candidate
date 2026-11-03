@@ -4,8 +4,11 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
@@ -23,6 +26,63 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 
 class DesktopArtworkScreenTest {
+    @OptIn(ExperimentalTestApi::class)
+    @Test
+    fun `settings expands local scanning controls for an empty library`() = runComposeUiTest {
+        val harness = createHarness()
+        val root = Files.createTempDirectory("local-settings-test")
+        val local = LocalMusicViewModel(LocalMusicStore(root.resolve("library.db")), mainDispatcher = Dispatchers.Unconfined)
+        try {
+            setContent {
+                SettingsScreen(harness.viewModel, harness.viewModel.settings.value, diagnosticsEnabled = false, localMusicViewModel = local)
+            }
+            onAllNodesWithTag("local-music-add-root").assertCountEquals(0)
+            onNodeWithTag("settings-section-本地音乐").performScrollTo().performClick()
+            onNodeWithTag("local-music-add-root").performScrollTo().assertIsDisplayed()
+            onNodeWithTag("local-music-scan").performScrollTo().assertIsDisplayed().assertIsNotEnabled()
+            onNodeWithTag("local-music-hash-duplicates").performScrollTo().assertIsNotEnabled()
+            onNodeWithTag("local-music-status").performScrollTo().assertIsDisplayed()
+        } finally {
+            runBlocking { local.shutdown() }
+            harness.close()
+        }
+    }
+
+    @OptIn(ExperimentalTestApi::class)
+    @Test
+    fun `settings scan indexes the selected directory without modifying files`() = runComposeUiTest {
+        val harness = createHarness()
+        val temp = Files.createTempDirectory("local-settings-scan-test")
+        val music = Files.createDirectory(temp.resolve("music"))
+        val song = music.resolve("song.mp3")
+        val original = byteArrayOf(1, 2, 3, 4)
+        Files.write(song, original)
+        val store = LocalMusicStore(temp.resolve("library.db"))
+        val scanner = DesktopMusicScanner(store, LocalAudioMetadataReader {
+            LocalAudioMetadata("MP3", AudioLossiness.LOSSY, 180.0, 128, 44_100, 16,
+                "Settings Scan", listOf("Artist"), "Album", "Artist", 1, 1)
+        })
+        val local = LocalMusicViewModel(store, scanner, mainDispatcher = Dispatchers.Default)
+        try {
+            local.addRoots(listOf(music))
+            waitUntil(timeoutMillis = 5_000, conditionDescription = "directory added") { local.state.value.roots.size == 1 }
+            setContent {
+                SettingsScreen(harness.viewModel, harness.viewModel.settings.value, diagnosticsEnabled = false, localMusicViewModel = local)
+            }
+            onNodeWithTag("settings-section-本地音乐").performScrollTo().performClick()
+            onNodeWithTag("local-music-scan").performScrollTo().assertIsEnabled().performClick()
+            waitUntil(timeoutMillis = 10_000, conditionDescription = "settings scan completed") {
+                !local.state.value.isScanning && local.state.value.tracks.size == 1
+            }
+            assertEquals("Settings Scan", local.state.value.tracks.single().title)
+            assertEquals(original.toList(), Files.readAllBytes(song).toList())
+        } finally {
+            runBlocking { local.shutdown() }
+            harness.close()
+            temp.toFile().deleteRecursively()
+        }
+    }
+
     @OptIn(ExperimentalTestApi::class)
     @Test
     fun `thumbnail opens preview dialog and close button dismisses it`() = runComposeUiTest {
@@ -99,6 +159,8 @@ class DesktopArtworkScreenTest {
         val harness = createHarness(DesktopSettings(defaultDownloadDirectory = root.resolve("music").toString()))
         try {
             setContent { SettingsScreen(harness.viewModel, harness.viewModel.settings.value, diagnosticsEnabled = false) }
+            onAllNodesWithTag("cover-mode-custom").assertCountEquals(0)
+            onNodeWithTag("settings-section-下载与媒体").performScrollTo().performClick()
             onNodeWithTag("cover-mode-custom").performScrollTo().performClick()
             onNodeWithTag("settings-cover-directory").performScrollTo().performTextInput(custom)
             onNodeWithTag("settings-cover-directory").assertIsDisplayed()
@@ -131,6 +193,7 @@ class DesktopArtworkScreenTest {
                 )
             }
 
+            onNodeWithTag("settings-section-应用更新").performScrollTo().performClick()
             onNodeWithTag("update-manual-check").performScrollTo().performClick()
             onNodeWithTag("update-auto-download-preview").performScrollTo().performClick()
 
@@ -159,6 +222,7 @@ class DesktopArtworkScreenTest {
                 )
             }
 
+            onNodeWithTag("settings-section-应用更新").performScrollTo().performClick()
             repeat(20) {
                 onNodeWithTag("settings-screen-scroll").performTouchInput { swipeUp() }
             }

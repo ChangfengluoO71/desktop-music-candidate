@@ -46,6 +46,73 @@ class PlayerViewModelTest {
     }
 
     @Test
+    fun `late lyrics from a previous track do not overwrite the current track`() = runBlocking {
+        val firstAudio = temp.resolve("first.mp3")
+        val secondAudio = temp.resolve("second.mp3")
+        Files.write(firstAudio, byteArrayOf(1))
+        Files.write(secondAudio, byteArrayOf(2))
+        Files.writeString(temp.resolve("first.lrc"), "[00:01.00]first")
+        Files.writeString(temp.resolve("second.lrc"), "[00:01.00]second")
+        val first = track(firstAudio)
+        val second = track(secondAudio)
+        val firstLoadStarted = java.util.concurrent.CountDownLatch(1)
+        val releaseFirstLoad = java.util.concurrent.CountDownLatch(1)
+        val firstLoadFinished = java.util.concurrent.CountDownLatch(1)
+        val runningFirstLoad = ThreadLocal<Boolean>()
+        val ioDispatcher = object : kotlinx.coroutines.CoroutineDispatcher() {
+            override fun dispatch(context: kotlin.coroutines.CoroutineContext, block: Runnable) {
+                Dispatchers.IO.dispatch(context) {
+                    try {
+                        block.run()
+                    } finally {
+                        if (runningFirstLoad.get() == true) firstLoadFinished.countDown()
+                        runningFirstLoad.remove()
+                    }
+                }
+            }
+        }
+        val loader = LocalLyricsLoader { path ->
+            if (path == firstAudio) {
+                runningFirstLoad.set(true)
+                firstLoadStarted.countDown()
+                releaseFirstLoad.await()
+            }
+            null
+        }
+        val engine = TestEngine()
+        val local = LocalMusicViewModel(LocalMusicStore(temp.resolve("library.db")), mainDispatcher = Dispatchers.Default)
+        val viewModel = PlayerViewModel(
+            PlaybackCoordinator(engine, Dispatchers.Default),
+            local,
+            PlaybackQueueStore(temp.resolve("player.json")),
+            lyricsLoader = loader,
+            ioDispatcher = ioDispatcher,
+            mainDispatcher = Dispatchers.Default,
+        )
+        try {
+            viewModel.play(first)
+            assertTrue(firstLoadStarted.await(3, java.util.concurrent.TimeUnit.SECONDS))
+
+            viewModel.play(second)
+            withTimeout(3_000) {
+                viewModel.state.first { state ->
+                    state.playback.currentTrack?.pathKey == second.pathKey &&
+                        state.lyrics.original.singleOrNull()?.text == "second"
+                }
+            }
+
+            releaseFirstLoad.countDown()
+            assertTrue(firstLoadFinished.await(3, java.util.concurrent.TimeUnit.SECONDS))
+            assertEquals(second.pathKey, viewModel.state.value.playback.currentTrack?.pathKey)
+            assertEquals("second", viewModel.state.value.lyrics.original.single().text)
+        } finally {
+            releaseFirstLoad.countDown()
+            viewModel.close()
+            local.shutdown()
+        }
+    }
+
+    @Test
     fun `persisted playback restores queue without starting audio`() = runBlocking {
         val audio = temp.resolve("saved.mp3")
         Files.write(audio, byteArrayOf(1))

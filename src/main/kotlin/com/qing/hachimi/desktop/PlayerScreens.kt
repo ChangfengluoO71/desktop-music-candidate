@@ -4,14 +4,19 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.TooltipArea
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -22,6 +27,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
@@ -48,6 +55,16 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import top.yukonga.miuix.kmp.basic.Button
@@ -57,6 +74,7 @@ import top.yukonga.miuix.kmp.basic.Slider
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import java.util.Locale
+import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
 internal enum class ImmersivePlayerLayout { COVER_AND_LYRICS, LYRICS_FIRST }
@@ -67,6 +85,7 @@ internal fun PlayerMiniBar(
     onOpenNowPlaying: () -> Unit,
     artworkRepository: LocalArtworkRepository? = null,
     onOpenImmersive: () -> Unit = onOpenNowPlaying,
+    onOpenQueue: () -> Unit = onOpenNowPlaying,
 ) {
     val state by viewModel.state.collectAsState()
     PlayerMiniBarContent(
@@ -78,9 +97,14 @@ internal fun PlayerMiniBar(
         onNext = viewModel::next,
         onSeek = viewModel::seek,
         onOpenImmersive = onOpenImmersive,
+        onOpenQueue = onOpenQueue,
+        onSetShuffle = viewModel::setShuffle,
+        onSetRepeatMode = viewModel::setRepeatMode,
+        onSetVolume = viewModel::setVolume,
     )
 }
 
+@OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 internal fun PlayerMiniBarContent(
     state: PlayerUiState,
@@ -91,6 +115,10 @@ internal fun PlayerMiniBarContent(
     onNext: () -> Unit,
     onSeek: (Long) -> Unit,
     onOpenImmersive: () -> Unit = onOpenNowPlaying,
+    onOpenQueue: () -> Unit = onOpenNowPlaying,
+    onSetShuffle: (Boolean) -> Unit = {},
+    onSetRepeatMode: (PlaybackRepeatMode) -> Unit = {},
+    onSetVolume: (Float) -> Unit = {},
 ) {
     val playback = state.playback
     val track = playback.currentTrack
@@ -100,60 +128,105 @@ internal fun PlayerMiniBarContent(
         if (!dragging) sliderValue = progressOf(playback)
     }
 
-    Column(
+    BoxWithConstraints(
         Modifier.fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
+            .wrapContentHeight()
+            .clip(RoundedCornerShape(12.dp))
             .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.09f))
-            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .padding(horizontal = 10.dp, vertical = 8.dp)
             .testTag("player-mini-bar"),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (track != null) PlayerArtwork(track, 48.dp, artworkRepository)
-            else Box(
-                Modifier.size(48.dp).clip(RoundedCornerShape(8.dp))
-                    .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)),
-                contentAlignment = Alignment.Center,
-            ) { Text("♫") }
-            Column(Modifier.weight(1f).clickable(onClick = onOpenNowPlaying)) {
-                Text(track?.title ?: "本地音乐播放器", maxLines = 1, overflow = TextOverflow.Ellipsis)
+        val narrow = maxWidth < 620.dp
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            FlowRow(
+                Modifier.fillMaxWidth().wrapContentHeight().heightIn(min = 56.dp),
+                itemVerticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Box(Modifier.clickable(onClick = onOpenNowPlaying)) {
+                    if (track != null) PlayerArtwork(track, 48.dp, artworkRepository)
+                    else Box(
+
+                    Modifier.size(48.dp).clip(RoundedCornerShape(8.dp))
+                        .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)),
+                    contentAlignment = Alignment.Center,
+                    ) { Text("♫") }
+                }
+                TooltipArea(
+                    tooltip = {
+                        Column(
+                            Modifier.widthIn(max = 360.dp).clip(RoundedCornerShape(6.dp))
+                                .background(MiuixTheme.colorScheme.surface)
+                                .border(1.dp, MiuixTheme.colorScheme.onBackground.copy(alpha = 0.2f), RoundedCornerShape(6.dp))
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                                .testTag("player-metadata-tooltip"),
+                        ) {
+                            Text(track?.title ?: "本地音乐播放器")
+                            Text(track?.artists.orEmpty().joinToString().ifBlank { track?.album ?: "选择本地歌曲开始播放" }, style = MiuixTheme.textStyles.body2)
+                        }
+                    },
+                ) {
+                    Column(
+                        Modifier.width(if (narrow) 88.dp else 180.dp).clickable(onClick = onOpenNowPlaying),
+                    ) {
+                        Text(track?.title ?: "本地音乐播放器", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(
+                            track?.artists.orEmpty().joinToString().ifBlank { track?.album ?: "选择本地歌曲开始播放" },
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            style = MiuixTheme.textStyles.body2,
+                        )
+                    }
+                }
+                Button(modifier = Modifier.testTag("player-previous"), enabled = track != null, onClick = onPrevious) { Text(if (narrow) "上一" else "上一首") }
+                Button(
+                    modifier = Modifier.testTag("player-toggle"),
+                    enabled = track != null || playback.queue.isNotEmpty(),
+                    colors = ButtonDefaults.buttonColorsPrimary(),
+                    onClick = onTogglePlayback,
+                ) { Text(if (playback.isPlaying) "暂停" else "播放") }
+                Button(modifier = Modifier.testTag("player-next"), enabled = track != null, onClick = onNext) { Text(if (narrow) "下一" else "下一首") }
+                Button(modifier = Modifier.testTag("player-open-queue"), onClick = onOpenQueue) { Text("队列") }
+                Button(modifier = Modifier.testTag("player-open-immersive"), onClick = onOpenImmersive) { Text("沉浸") }
+                Button(modifier = Modifier.testTag("player-shuffle"), onClick = { onSetShuffle(!playback.shuffle) }) { Text(if (playback.shuffle) "随机：开" else "随机：关") }
+                Button(modifier = Modifier.testTag("player-repeat"), onClick = { onSetRepeatMode(nextRepeatMode(playback.repeatMode)) }) { Text("循环：${repeatLabel(playback.repeatMode)}") }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(displayPlayerTime(playback), style = MiuixTheme.textStyles.body2)
+                Slider(
+                    value = sliderValue,
+                    onValueChange = {
+                        if (playback.durationMillis > 0L) {
+                            sliderValue = it
+                            dragging = true
+                        }
+                    },
+                    modifier = Modifier.weight(1f).height(28.dp)
+                        .semantics { if (playback.durationMillis <= 0L) disabled() }
+                        .testTag("player-seek"),
+                    enabled = playback.durationMillis > 0,
+                    valueRange = 0f..1f,
+                    onValueChangeFinished = {
+                        dragging = false
+                        if (playback.durationMillis > 0L) onSeek((sliderValue * playback.durationMillis).toLong())
+                    },
+                )
+                Text("/")
+                Text(displayDuration(playback.durationMillis), style = MiuixTheme.textStyles.body2)
+                Text("音量", style = MiuixTheme.textStyles.body2)
+                Slider(value = playback.volume, onValueChange = onSetVolume, modifier = Modifier.width(if (narrow) 65.dp else 100.dp).height(24.dp).testTag("player-volume"), valueRange = 0f..1f)
+            }
+            playback.error?.let {
                 Text(
-                    track?.artists.orEmpty().joinToString().ifBlank { track?.album ?: "选择本地歌曲开始播放" },
+                    it,
+                    color = MiuixTheme.colorScheme.primary,
+                    modifier = Modifier.testTag("player-error"),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    style = MiuixTheme.textStyles.body2,
                 )
             }
-            Button(modifier = Modifier.testTag("player-previous"), enabled = track != null, onClick = onPrevious) { Text("上一首") }
-            Button(
-                modifier = Modifier.testTag("player-toggle"),
-                enabled = track != null || playback.queue.isNotEmpty(),
-                colors = ButtonDefaults.buttonColorsPrimary(),
-                onClick = onTogglePlayback,
-            ) { Text(if (playback.isPlaying) "暂停" else "播放") }
-            Button(modifier = Modifier.testTag("player-next"), enabled = track != null, onClick = onNext) { Text("下一首") }
-            Button(modifier = Modifier.testTag("player-open-now-playing"), onClick = onOpenNowPlaying) { Text("歌词 / 队列") }
         }
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(formatPlayerTime(playback.positionMillis), style = MiuixTheme.textStyles.body2)
-            Slider(
-                value = sliderValue,
-                onValueChange = {
-                    sliderValue = it
-                    dragging = true
-                },
-                modifier = Modifier.weight(1f).height(24.dp).testTag("player-seek"),
-                enabled = playback.durationMillis > 0,
-                valueRange = 0f..1f,
-                onValueChangeFinished = {
-                    dragging = false
-                    onSeek((sliderValue * playback.durationMillis).toLong())
-                },
-            )
-            Text(formatPlayerTime(playback.durationMillis), style = MiuixTheme.textStyles.body2)
-        }
-        Button(modifier = Modifier.testTag("player-open-immersive"), onClick = onOpenImmersive) { Text("沉浸播放") }
-        playback.error?.let { Text(it, color = MiuixTheme.colorScheme.primary, modifier = Modifier.testTag("player-error")) }
     }
 }
 
@@ -162,76 +235,81 @@ internal fun NowPlayingScreen(
     viewModel: PlayerViewModel,
     artworkRepository: LocalArtworkRepository? = null,
     onOpenImmersive: () -> Unit = {},
+    queueRequest: Int = 0,
 ) {
     val state by viewModel.state.collectAsState()
     val playback = state.playback
     val track = playback.currentTrack
     var showQueue by remember { mutableStateOf(false) }
-    var sliderValue by remember(track?.pathKey) { mutableFloatStateOf(progressOf(playback)) }
-    var dragging by remember(track?.pathKey) { mutableStateOf(false) }
-    LaunchedEffect(playback.positionMillis, playback.durationMillis) {
-        if (!dragging) sliderValue = progressOf(playback)
-    }
-
+    LaunchedEffect(queueRequest) { if (queueRequest > 0) showQueue = true }
     BoxWithConstraints(Modifier.fillMaxSize().testTag("now-playing-screen")) {
         val availableWidth = maxWidth
         val availableHeight = maxHeight
         val compact = availableWidth < 720.dp || availableHeight < 540.dp
-        val artworkSize = if (compact) minOf(160.dp, availableWidth * 0.28f, availableHeight * 0.32f)
-        else minOf(340.dp, availableWidth * 0.34f, availableHeight * 0.52f)
+        val artworkSize = if (compact) minOf(128.dp, availableWidth * 0.26f, availableHeight * 0.22f)
+        else minOf(440.dp, availableWidth * 0.36f, availableHeight * 0.62f)
         val contentModifier = Modifier.fillMaxSize()
             .then(rememberPlayerKeyboardShortcutModifier { it.perform(viewModel) })
             .background(MiuixTheme.colorScheme.background)
             .padding(if (compact) 12.dp else 24.dp)
+        val metadataModifier = Modifier.testTag("now-playing-transport")
         if (compact) {
             Column(contentModifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                NowPlayingTransportPane(
-                    modifier = Modifier.fillMaxWidth().heightIn(max = minOf(300.dp, availableHeight * 0.48f)).testTag("now-playing-transport"),
-                    compact = true,
-                    artworkSize = artworkSize,
-                    artworkRepository = artworkRepository,
-                    track = track,
-                    playback = playback,
-                    viewModel = viewModel,
-                    sliderValue = sliderValue,
-                    dragging = dragging,
-                    onSliderValue = { sliderValue = it },
-                    onDragging = { dragging = it },
-                )
+                Row(
+                    metadataModifier.fillMaxWidth().heightIn(max = minOf(180.dp, availableHeight * 0.30f)),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    if (track != null) PlayerArtwork(track, artworkSize, artworkRepository)
+                    else Box(
+                        Modifier.size(artworkSize).clip(RoundedCornerShape(14.dp))
+                            .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)),
+                        contentAlignment = Alignment.Center,
+                    ) { Text("暂无正在播放的歌曲") }
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(track?.title ?: "本地音乐播放器", maxLines = 2, overflow = TextOverflow.Ellipsis, style = MiuixTheme.textStyles.headline2)
+                        Text(track?.artists.orEmpty().joinToString().ifBlank { track?.album ?: "选择本地歌曲开始播放" }, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MiuixTheme.textStyles.body2)
+                        track?.album?.takeIf(String::isNotBlank)?.let { Text(it, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                        track?.let { Text(it.audioQuality.summary(), style = MiuixTheme.textStyles.body2, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                    }
+                }
+                if (state.activeLyricPresentation.credits.isNotEmpty()) {
+                    Text(state.activeLyricPresentation.credits.joinToString(" · "), style = MiuixTheme.textStyles.body2, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("now-playing-credits"))
+                }
                 HorizontalDivider()
                 NowPlayingLyricsPane(
                     modifier = Modifier.weight(1f).fillMaxWidth().testTag("now-playing-lyrics-panel"),
-                    state = state,
-                    playback = playback,
-                    viewModel = viewModel,
-                    showQueue = showQueue,
-                    onToggleQueue = { showQueue = !showQueue },
-                    onOpenImmersive = onOpenImmersive,
+                    state = state, playback = playback, viewModel = viewModel, showQueue = showQueue,
+                    onToggleQueue = { showQueue = !showQueue }, onOpenImmersive = onOpenImmersive,
                 )
             }
         } else {
             Row(contentModifier, horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-                NowPlayingTransportPane(
-                    modifier = Modifier.weight(0.9f).fillMaxHeight().testTag("now-playing-transport"),
-                    compact = false,
-                    artworkSize = artworkSize,
-                    artworkRepository = artworkRepository,
-                    track = track,
-                    playback = playback,
-                    viewModel = viewModel,
-                    sliderValue = sliderValue,
-                    dragging = dragging,
-                    onSliderValue = { sliderValue = it },
-                    onDragging = { dragging = it },
-                )
+                Column(
+                    metadataModifier.weight(0.4f).fillMaxHeight(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    if (track != null) PlayerArtwork(track, artworkSize, artworkRepository)
+                    else Box(
+                        Modifier.size(artworkSize).clip(RoundedCornerShape(18.dp))
+                            .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)),
+                        contentAlignment = Alignment.Center,
+                    ) { Text("暂无正在播放的歌曲") }
+                    Spacer(Modifier.height(16.dp))
+                    Text(track?.title ?: "本地音乐播放器", maxLines = 2, overflow = TextOverflow.Ellipsis, style = MiuixTheme.textStyles.headline1)
+                    Text(track?.artists.orEmpty().joinToString().ifBlank { track?.album ?: "选择本地歌曲开始播放" }, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MiuixTheme.textStyles.body1)
+                    Spacer(Modifier.height(12.dp))
+                    track?.album?.takeIf(String::isNotBlank)?.let { Text(it, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                    track?.let { Text(it.audioQuality.summary(), style = MiuixTheme.textStyles.body2) }
+                    if (state.activeLyricPresentation.credits.isNotEmpty()) {
+                        Text(state.activeLyricPresentation.credits.joinToString(" · "), style = MiuixTheme.textStyles.body2, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("now-playing-credits"))
+                    }
+                }
                 NowPlayingLyricsPane(
-                    modifier = Modifier.weight(1.1f).fillMaxHeight().testTag("now-playing-lyrics-panel"),
-                    state = state,
-                    playback = playback,
-                    viewModel = viewModel,
-                    showQueue = showQueue,
-                    onToggleQueue = { showQueue = !showQueue },
-                    onOpenImmersive = onOpenImmersive,
+                    modifier = Modifier.weight(0.6f).fillMaxHeight().testTag("now-playing-lyrics-panel"),
+                    state = state, playback = playback, viewModel = viewModel, showQueue = showQueue,
+                    onToggleQueue = { showQueue = !showQueue }, onOpenImmersive = onOpenImmersive,
                 )
             }
         }
@@ -251,6 +329,7 @@ internal fun ImmersivePlayerScreen(
     backdropSolidColor: String = "#111820",
     onExit: () -> Unit,
     onToggleFullscreen: () -> Unit = {},
+    onLayoutChange: (ImmersivePlayerLayout) -> Unit = {},
 ) {
     val state by viewModel.state.collectAsState()
     var selectedLayout by remember(layout) { mutableStateOf(layout) }
@@ -265,7 +344,7 @@ internal fun ImmersivePlayerScreen(
         backdropImagePath = backdropImagePath,
         backdropSolidColor = backdropSolidColor,
         onExit = onExit,
-        onLayoutChange = { selectedLayout = it },
+        onLayoutChange = { selectedLayout = it; onLayoutChange(it) },
         onToggleFullscreen = onToggleFullscreen,
         onPrevious = viewModel::previous,
         onTogglePlayback = viewModel::togglePlayback,
@@ -315,17 +394,35 @@ internal fun ImmersivePlayerContent(
     val playback = state.playback
     val track = playback.currentTrack
     var showQueue by remember { mutableStateOf(false) }
+    var controlsVisible by remember { mutableStateOf(true) }
+    var activity by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     var sliderValue by remember(track?.pathKey) { mutableFloatStateOf(progressOf(playback)) }
     var dragging by remember(track?.pathKey) { mutableStateOf(false) }
     LaunchedEffect(playback.positionMillis, playback.durationMillis) {
         if (!dragging) sliderValue = progressOf(playback)
     }
 
-    BoxWithConstraints(modifier.fillMaxSize().testTag("immersive-player")) {
+    LaunchedEffect(activity, dragging) {
+        if (!dragging) {
+            delay(3_000)
+            controlsVisible = false
+        }
+    }
+    BoxWithConstraints(modifier.fillMaxSize().pointerInput(Unit) {
+        awaitPointerEventScope {
+            while (true) {
+                val event = awaitPointerEvent()
+                if (event.type == PointerEventType.Move || event.type == PointerEventType.Press) {
+                    controlsVisible = true
+                    activity++
+                }
+            }
+        }
+    }.testTag("immersive-player")) {
         val compact = maxWidth < 760.dp || maxHeight < 560.dp
         val compactHeader = maxWidth < 1_000.dp
         val coverSize = if (compact) minOf(132.dp, maxWidth * 0.28f, maxHeight * 0.24f)
-        else minOf(320.dp, maxWidth * 0.33f, maxHeight * 0.48f)
+        else minOf(480.dp, maxWidth * 0.38f, maxHeight * 0.62f)
         ImmersiveArtworkBackdrop(
             track = track,
             repository = artworkRepository,
@@ -336,13 +433,21 @@ internal fun ImmersivePlayerContent(
             customImagePath = backdropImagePath,
             solidColor = backdropSolidColor,
         )
+        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f)))
         Column(
             Modifier.fillMaxSize()
+                .onPreviewKeyEvent { event ->
+                    if (event.type == KeyEventType.KeyDown) {
+                        controlsVisible = true
+                        activity++
+                    }
+                    if (event.type == KeyEventType.KeyDown && event.key == Key.Escape) { onExit(); true } else false
+                }
                 .then(onKeyboardAction?.let { action -> rememberImmersiveKeyboardShortcutModifier(action, onExit) } ?: Modifier)
                 .padding(if (compact) 12.dp else 24.dp),
             verticalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 14.dp),
         ) {
-            if (compactHeader) {
+            if (controlsVisible && compactHeader) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text("沉浸播放", color = Color.White, style = MiuixTheme.textStyles.headline2)
                     Spacer(Modifier.weight(1f))
@@ -354,7 +459,7 @@ internal fun ImmersivePlayerContent(
                 ) {
                     ImmersiveHeaderActions(showQueue, layout, onLayoutChange, onToggleFullscreen) { showQueue = !showQueue }
                 }
-            } else {
+            } else if (controlsVisible) {
                 Row(
                     Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -368,12 +473,13 @@ internal fun ImmersivePlayerContent(
             }
 
             if (compact) {
+                val compactCoverSize = if (layout == ImmersivePlayerLayout.LYRICS_FIRST) coverSize * 0.55f else coverSize
                 Row(
-                    Modifier.fillMaxWidth().height(coverSize + 24.dp),
+                    Modifier.fillMaxWidth().height(compactCoverSize + 24.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
-                    ImmersiveArtworkAndMetadata(track, artworkRepository, coverSize, compact = true, modifier = Modifier.weight(1f))
+                    ImmersiveArtworkAndMetadata(track, artworkRepository, compactCoverSize, compact = true, modifier = Modifier.weight(1f))
                 }
                 ImmersiveLyricOrQueuePane(
                     modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -407,18 +513,18 @@ internal fun ImmersivePlayerContent(
                         )
                     } else {
                         ImmersiveLyricOrQueuePane(
-                            modifier = Modifier.weight(1.2f).fillMaxHeight(), state = state, showQueue = showQueue,
+                            modifier = Modifier.weight(1.7f).fillMaxHeight(), state = state, showQueue = showQueue,
                             layout = layout, reducedMotion = reducedMotion, onSeek = onSeek,
                             material = backdropMaterial, materialStrength = backdropStrength,
                             onSelectLyricVariant = onSelectLyricVariant, onPlayQueueIndex = onPlayQueueIndex,
                             onMoveQueueItem = onMoveQueueItem, onRemoveQueueItem = onRemoveQueueItem, onClearQueue = onClearQueue,
                         )
-                        ImmersiveArtworkAndMetadata(track, artworkRepository, coverSize, compact = false, modifier = Modifier.weight(0.8f))
+                        ImmersiveArtworkAndMetadata(track, artworkRepository, minOf(160.dp, coverSize), compact = true, modifier = Modifier.weight(0.3f))
                     }
                 }
             }
 
-            ImmersivePlaybackDeck(
+            if (controlsVisible) ImmersivePlaybackDeck(
                 playback = playback,
                 material = backdropMaterial,
                 materialStrength = backdropStrength,
@@ -457,9 +563,6 @@ private fun ImmersiveHeaderActions(
     ) { Text("歌词优先", color = Color.White) }
     Button(modifier = Modifier.testTag("immersive-queue-toggle"), onClick = onToggleQueue) {
         Text(if (showQueue) "返回歌词" else "播放队列", color = Color.White)
-    }
-    Button(modifier = Modifier.testTag("immersive-fullscreen"), onClick = onToggleFullscreen) {
-        Text("全屏", color = Color.White)
     }
 }
 
@@ -580,9 +683,7 @@ private fun ImmersiveArtworkAndMetadata(
     val artwork by produceState<ImageBitmap?>(null, repository, track?.pathKey, edgePx) {
         value = track?.let { current -> repository?.let { runCatching { it.thumbnail(current, edgePx) }.getOrNull() } }
     }
-    val renderedCoverSize = artwork?.let { image ->
-        with(density) { minOf(coverSize.toPx(), maxOf(image.width, image.height).toFloat()).toDp() }
-    } ?: coverSize
+    val renderedCoverSize = coverSize
     if (compact) {
         if (artwork != null) {
             Image(BitmapPainter(requireNotNull(artwork)), contentDescription = track?.album, contentScale = ContentScale.Fit,
@@ -648,29 +749,31 @@ private fun ImmersiveLyricOrQueuePane(
     val trackKey = state.playback.currentTrack?.pathKey
     val listState = rememberLazyListState()
     var followLyrics by remember(trackKey, state.lyricVariant, layout) { mutableStateOf(true) }
-    var automaticScroll by remember { mutableStateOf(false) }
     val lines = state.activeLyrics
     val activeIndex = state.activeLyricIndex
-    val alignedLines = remember(state.lyrics) { ImmersiveLyrics.align(state.lyrics) }
+    val alignedLines = remember(state.lyrics) {
+        ImmersiveLyrics.align(LocalLyricsBundle(
+            original = state.lyrics.presentation(LyricVariant.ORIGINAL).timedLines,
+            translation = state.lyrics.presentation(LyricVariant.TRANSLATION).timedLines,
+            romanization = state.lyrics.presentation(LyricVariant.ROMANIZATION).timedLines,
+        ))
+    }
 
-    LaunchedEffect(listState.isScrollInProgress, automaticScroll) {
-        if (listState.isScrollInProgress && !automaticScroll) followLyrics = false
+    LaunchedEffect(listState) {
+        listState.interactionSource.interactions.collect { interaction ->
+            if (interaction is DragInteraction.Start) followLyrics = false
+        }
     }
     LaunchedEffect(activeIndex, followLyrics, trackKey, state.lyricVariant, layout) {
         if (followLyrics && activeIndex >= 0) {
-            automaticScroll = true
-            try {
-                val targetOffset = -(listState.layoutInfo.viewportSize.height / 3)
-                listState.animateScrollToItem(activeIndex, scrollOffset = targetOffset)
-            } finally {
-                automaticScroll = false
-            }
+            val targetOffset = -(listState.layoutInfo.viewportSize.height / 3)
+            listState.animateScrollToItem(activeIndex, scrollOffset = targetOffset)
         }
     }
 
     Column(modifier.immersiveMaterialSurface(material, materialStrength).testTag("immersive-lyrics"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            LyricVariant.entries.filter { state.lyrics.lines(it).isNotEmpty() }.forEach { variant ->
+            LyricVariant.entries.filter { !state.lyrics.presentation(it).isEmpty }.forEach { variant ->
                 Button(
                     modifier = Modifier.testTag("immersive-variant-${variant.name.lowercase(Locale.ROOT)}"),
                     colors = if (variant == state.lyricVariant) ButtonDefaults.buttonColorsPrimary() else ButtonDefaults.buttonColors(),
@@ -685,10 +788,11 @@ private fun ImmersiveLyricOrQueuePane(
             }
         }
         when {
+            state.activeLyricPresentation.timedLines.isEmpty() && !state.activeLyricPresentation.isEmpty -> LyricPlainContent(state.activeLyricPresentation, Color.White, Modifier.verticalScroll(rememberScrollState()))
             state.isLoadingLyrics -> Text("正在读取本地歌词…", color = Color.White.copy(alpha = 0.8f))
             state.lyricsUnavailable -> Text("未找到可用的本地歌词。", color = Color.White.copy(alpha = 0.8f))
             else -> LazyColumn(
-                Modifier.weight(1f).fillMaxWidth().testTag("immersive-lyrics-list"),
+                Modifier.weight(1f).fillMaxWidth().pauseFollowOnWheel { followLyrics = false }.testTag("immersive-lyrics-list"),
                 state = listState,
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
@@ -700,23 +804,36 @@ private fun ImmersiveLyricOrQueuePane(
                                 .testTag("immersive-lyric-$index"),
                             verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
-                            Text(line.original.text, color = if (active) Color.White else Color.White.copy(alpha = 0.62f),
-                                style = if (active) MiuixTheme.textStyles.headline1 else MiuixTheme.textStyles.headline2)
+                            Text(
+                                line.original.text,
+                                color = if (active) Color.White else Color.White.copy(alpha = 0.58f),
+                                style = if (active) MiuixTheme.textStyles.headline1 else MiuixTheme.textStyles.headline2,
+                                modifier = Modifier.fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(if (active) Color.White.copy(alpha = 0.12f) else Color.Transparent)
+                                    .padding(horizontal = if (active) 10.dp else 0.dp, vertical = 2.dp),
+                            )
                             line.translation?.let { Text(it.text, color = Color.White.copy(alpha = 0.82f), style = MiuixTheme.textStyles.body1) }
                             line.romanization?.let { Text(it.text, color = Color.White.copy(alpha = 0.65f), style = MiuixTheme.textStyles.body2) }
                         }
                     }
                 } else {
                     itemsIndexed(lines, key = { index, line -> "$index-${line.timeMillis}" }) { index, line ->
+                        val active = index == activeIndex
                         Text(
                             line.text,
-                            color = if (index == activeIndex) Color.White else Color.White.copy(alpha = 0.64f),
-                            style = if (index == activeIndex) MiuixTheme.textStyles.headline1 else MiuixTheme.textStyles.headline2,
-                            modifier = Modifier.fillMaxWidth().clickable { onSeek(line.timeMillis.coerceAtLeast(0L)) }
+                            color = if (active) Color.White else Color.White.copy(alpha = 0.58f),
+                            style = if (active) MiuixTheme.textStyles.headline1 else MiuixTheme.textStyles.headline2,
+                            modifier = Modifier.fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(if (active) Color.White.copy(alpha = 0.12f) else Color.Transparent)
+                                .clickable { onSeek(line.timeMillis.coerceAtLeast(0L)) }
+                                .padding(horizontal = if (active) 10.dp else 0.dp, vertical = 2.dp)
                                 .testTag("immersive-lyric-$index"),
                         )
                     }
                 }
+                item { LyricPlainContent(state.activeLyricPresentation.copy(timedLines = emptyList()), Color.White) }
             }
         }
     }
@@ -789,7 +906,7 @@ private fun ImmersivePlaybackDeck(
                 }) { Text("循环：${when (playback.repeatMode) { PlaybackRepeatMode.OFF -> "关"; PlaybackRepeatMode.ALL -> "列表"; PlaybackRepeatMode.ONE -> "单曲" }}", color = Color.White) }
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(formatPlayerTime(playback.positionMillis), color = Color.White, style = MiuixTheme.textStyles.body2)
+                Text(displayPlayerTime(playback), color = Color.White, style = MiuixTheme.textStyles.body2)
                 Slider(
                     value = sliderValue,
                     onValueChange = { onSliderValue(it); onDragging(true) },
@@ -801,7 +918,7 @@ private fun ImmersivePlaybackDeck(
                         onSeek((sliderValue * playback.durationMillis).toLong())
                     },
                 )
-                Text(formatPlayerTime(playback.durationMillis), color = Color.White, style = MiuixTheme.textStyles.body2)
+                Text(displayDuration(playback.durationMillis), color = Color.White, style = MiuixTheme.textStyles.body2)
                 if (!narrow) {
                     Slider(value = playback.volume, onValueChange = onSetVolume, modifier = Modifier.width(110.dp).height(28.dp).testTag("immersive-volume"), valueRange = 0f..1f)
                 }
@@ -896,7 +1013,7 @@ private fun PlayerSeekControls(
     tag: String,
 ) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(formatPlayerTime(playback.positionMillis), style = MiuixTheme.textStyles.body2)
+        Text(displayPlayerTime(playback), style = MiuixTheme.textStyles.body2)
         Slider(
             value = sliderValue,
             onValueChange = { onSliderValue(it); onDragging(true) },
@@ -908,7 +1025,7 @@ private fun PlayerSeekControls(
                 viewModel.seek((sliderValue * playback.durationMillis).toLong())
             },
         )
-        Text(formatPlayerTime(playback.durationMillis), style = MiuixTheme.textStyles.body2)
+        Text(displayDuration(playback.durationMillis), style = MiuixTheme.textStyles.body2)
     }
 }
 
@@ -976,8 +1093,8 @@ private fun NowPlayingLyricsPane(
         } else {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 LyricVariant.entries.forEach { variant ->
-                    val lines = state.lyrics.lines(variant)
-                    if (lines.isNotEmpty()) {
+                    val presentation = state.lyrics.presentation(variant)
+                    if (!presentation.isEmpty) {
                         Button(
                             colors = if (variant == state.lyricVariant) ButtonDefaults.buttonColorsPrimary() else ButtonDefaults.buttonColors(),
                             modifier = Modifier.testTag("lyric-variant-${variant.name.lowercase(Locale.ROOT)}"),
@@ -987,6 +1104,7 @@ private fun NowPlayingLyricsPane(
                 }
             }
             when {
+                state.activeLyricPresentation.timedLines.isEmpty() && !state.activeLyricPresentation.isEmpty -> LyricPlainContent(state.activeLyricPresentation, MiuixTheme.colorScheme.onBackground, Modifier.verticalScroll(rememberScrollState()))
                 state.isLoadingLyrics -> Text("正在读取本地歌词…")
                 state.lyricsUnavailable -> Text("未找到内嵌歌词或同名 .lrc / .tl.lrc / .roma.lrc 文件。")
                 else -> PlayerLyricsContent(
@@ -996,11 +1114,28 @@ private fun NowPlayingLyricsPane(
                     trackKey = playback.currentTrack?.pathKey,
                     variant = state.lyricVariant,
                     onSeek = viewModel::seek,
+                    supplemental = state.activeLyricPresentation,
                 )
             }
         }
     }
 }
+@Composable
+private fun LyricPlainContent(presentation: LyricPresentation, color: Color, modifier: Modifier = Modifier) {
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        presentation.unsynchronizedLines.forEach { Text(it, color = color) }
+        presentation.credits.forEach { Text(it, color = color.copy(alpha = 0.7f), style = MiuixTheme.textStyles.body2) }
+    }
+}
+
+private fun Modifier.pauseFollowOnWheel(onScroll: () -> Unit): Modifier = pointerInput(onScroll) {
+    awaitPointerEventScope {
+        while (true) {
+            if (awaitPointerEvent(PointerEventPass.Initial).type == PointerEventType.Scroll) onScroll()
+        }
+    }
+}
+
 @Composable
 internal fun PlayerLyricsContent(
     modifier: Modifier = Modifier,
@@ -1009,22 +1144,19 @@ internal fun PlayerLyricsContent(
     trackKey: String?,
     variant: LyricVariant,
     onSeek: (Long) -> Unit,
+    supplemental: LyricPresentation = LyricPresentation(),
 ) {
     val listState = rememberLazyListState()
     var followLyrics by remember(trackKey, variant) { mutableStateOf(true) }
-    var automaticScroll by remember { mutableStateOf(false) }
 
-    LaunchedEffect(listState.isScrollInProgress, automaticScroll) {
-        if (listState.isScrollInProgress && !automaticScroll) followLyrics = false
+    LaunchedEffect(listState) {
+        listState.interactionSource.interactions.collect { interaction ->
+            if (interaction is DragInteraction.Start) followLyrics = false
+        }
     }
     LaunchedEffect(activeIndex, followLyrics, trackKey, variant) {
         if (followLyrics && activeIndex >= 0) {
-            automaticScroll = true
-            try {
-                listState.animateScrollToItem(activeIndex)
-            } finally {
-                automaticScroll = false
-            }
+            listState.animateScrollToItem(activeIndex)
         }
     }
 
@@ -1035,18 +1167,25 @@ internal fun PlayerLyricsContent(
             }
         }
         LazyColumn(
-            Modifier.weight(1f).fillMaxWidth().testTag("now-playing-lyrics"),
+            Modifier.weight(1f).fillMaxWidth().pauseFollowOnWheel { followLyrics = false }.testTag("now-playing-lyrics"),
             state = listState,
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             itemsIndexed(lines, key = { index, line -> "$index-${line.timeMillis}" }) { index, line ->
+                val active = index == activeIndex
                 Text(
                     line.text,
-                    style = if (index == activeIndex) MiuixTheme.textStyles.headline2 else MiuixTheme.textStyles.body1,
-                    color = if (index == activeIndex) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onBackground,
-                    modifier = Modifier.fillMaxWidth().clickable { onSeek(line.timeMillis.coerceAtLeast(0L)) }.testTag("lyric-line-$index"),
+                    style = if (active) MiuixTheme.textStyles.headline2 else MiuixTheme.textStyles.body1,
+                    color = if (active) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onBackground.copy(alpha = 0.72f),
+                    modifier = Modifier.fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(if (active) MiuixTheme.colorScheme.primary.copy(alpha = 0.10f) else Color.Transparent)
+                        .clickable { onSeek(line.timeMillis.coerceAtLeast(0L)) }
+                        .padding(horizontal = if (active) 10.dp else 0.dp, vertical = 3.dp)
+                        .testTag("lyric-line-$index"),
                 )
             }
+            item { LyricPlainContent(supplemental.copy(timedLines = emptyList()), MiuixTheme.colorScheme.onBackground) }
         }
     }
 }
@@ -1072,6 +1211,24 @@ private fun PlayerArtwork(track: LocalTrack, size: androidx.compose.ui.unit.Dp, 
         ) { Text("No artwork") }
     }
 }
+private fun nextRepeatMode(mode: PlaybackRepeatMode): PlaybackRepeatMode = when (mode) {
+    PlaybackRepeatMode.OFF -> PlaybackRepeatMode.ALL
+    PlaybackRepeatMode.ALL -> PlaybackRepeatMode.ONE
+    PlaybackRepeatMode.ONE -> PlaybackRepeatMode.OFF
+}
+
+private fun repeatLabel(mode: PlaybackRepeatMode): String = when (mode) {
+    PlaybackRepeatMode.OFF -> "关"
+    PlaybackRepeatMode.ALL -> "列表"
+    PlaybackRepeatMode.ONE -> "单曲"
+}
+
+private fun displayPlayerTime(playback: PlaybackState): String =
+    if (playback.durationMillis > 0L) formatPlayerTime(playback.positionMillis) else "--:--"
+
+private fun displayDuration(durationMillis: Long): String =
+    if (durationMillis > 0L) formatPlayerTime(durationMillis) else "--:--"
+
 private fun progressOf(playback: PlaybackState): Float =
     if (playback.durationMillis <= 0L) 0f else (playback.positionMillis.toFloat() / playback.durationMillis).coerceIn(0f, 1f)
 

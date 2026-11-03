@@ -177,6 +177,7 @@ class DownloadTaskStore(private val file: Path) {
             AudioOutputMode.valueOf(optString("audioOutputMode", AudioOutputMode.SHARED.name))
         }.getOrDefault(AudioOutputMode.SHARED),
         reducedMotion = optBoolean("reducedMotion", false),
+        sidebarCollapsed = optBoolean("sidebarCollapsed", false),
         immersiveBackdropSource = runCatching {
             ImmersiveBackdropSource.valueOf(optString("immersiveBackdropSource", ImmersiveBackdropSource.ALBUM_ART.name))
         }.getOrDefault(ImmersiveBackdropSource.ALBUM_ART),
@@ -245,6 +246,7 @@ class DownloadTaskStore(private val file: Path) {
             .put("customCoverDirectory", customCoverDirectory)
             .put("audioOutputMode", audioOutputMode.name)
             .put("reducedMotion", reducedMotion)
+            .put("sidebarCollapsed", sidebarCollapsed)
             .put("immersiveBackdropSource", immersiveBackdropSource.name)
             .put("immersiveBackdropMaterial", immersiveBackdropMaterial.name)
             .put("immersiveBackdropStrength", immersiveBackdropStrength.coerceIn(0, 100))

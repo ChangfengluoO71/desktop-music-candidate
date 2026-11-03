@@ -9,7 +9,7 @@ on:
         description: "Windows package version (numeric major.minor.patch)"
         required: true
         type: string
-        default: "0.0.3"
+        default: "0.0.4"
       update_channel:
         description: "Update channel embedded in the application"
         required: true
@@ -279,10 +279,23 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  publish-ref-guard:
+    name: Validate stable release source ref
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_release == 'publish'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require the main branch for publishing
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "Refusing to publish a stable release from $GITHUB_REF; dispatch this workflow from main." >&2
+            exit 1
+          fi
+
   publish-release:
     name: Publish GitHub release
-    if: github.event_name == 'workflow_dispatch' && inputs.publish_release == 'publish'
-    needs: installer
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_release == 'publish' && github.ref == 'refs/heads/main'
+    needs: [installer, publish-ref-guard]
     runs-on: windows-latest
     permissions:
       contents: write
@@ -327,7 +340,7 @@ jobs:
           }
           if ($env:UPDATE_CHANNEL -eq 'stable') {
             $title = "DMC $tag"
-            $notes = "DMC 0.0.3 adds separate GitHub release-check and installer-download mirror settings. Both default to a direct GitHub connection; bundled presets and HTTPS custom templates are available in Settings. This update also improves updater retry/cooldown recovery. The Windows Inno Setup installer includes a pinned LGPL libmpv runtime, its corresponding source archive and license notices, the Java runtime, selectable installation directory, Start Menu shortcuts, and uninstaller. SHA256SUMS.txt contains hashes for release assets."
+            $notes = "DMC $tag improves the desktop listening experience with a responsive player, reorganized local music discovery and scanning settings, local shuffle, and refinements to lyrics, artwork, downloads, and playback controls. The Windows Inno Setup installer includes a pinned LGPL libmpv runtime, its corresponding source archive and license notices, the Java runtime, selectable installation directory, Start Menu shortcuts, and uninstaller. SHA256SUMS.txt contains hashes for release assets."
             gh release create $tag $installer.FullName 'release-assets\libmpv-corresponding-source.tar.gz' 'release-assets\libmpv-runtime-manifest.json' 'release-assets\SHA256SUMS.txt' --repo $env:GITHUB_REPOSITORY --title $title --notes $notes --target $env:GITHUB_SHA
           } else {
             $title = "DMC $tag (Preview)"

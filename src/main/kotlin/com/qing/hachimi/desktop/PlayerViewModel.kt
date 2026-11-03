@@ -15,6 +15,8 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.ensureActive
+import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.withContext
 import java.nio.file.Path
 
@@ -25,9 +27,11 @@ data class PlayerUiState(
     val isLoadingLyrics: Boolean = false,
     val lyricsUnavailable: Boolean = false,
     val queueRecoveryWarning: String? = null,
+    internal val lyricRequestGeneration: Long = 0,
 ) {
-    val activeLyrics: List<TimedLyricLine> get() = lyrics.lines(lyricVariant)
-    val activeLyricIndex: Int get() = lyrics.currentLineIndex(lyricVariant, playback.positionMillis)
+    val activeLyricPresentation: LyricPresentation get() = lyrics.presentation(lyricVariant)
+    val activeLyrics: List<TimedLyricLine> get() = activeLyricPresentation.timedLines
+    val activeLyricIndex: Int get() = activeLyricPresentation.currentLineIndex(playback.positionMillis)
 }
 
 @OptIn(FlowPreview::class)
@@ -56,7 +60,11 @@ class PlayerViewModel(
         }
         scope.launch {
             coordinator.state.collect { playback ->
-                mutableState.update { it.copy(playback = playback) }
+                mutableState.update {
+                    if (it.playback.currentTrack?.pathKey != playback.currentTrack?.pathKey)
+                        it.copy(playback = playback, lyrics = LocalLyricsBundle(), isLoadingLyrics = playback.currentTrack != null, lyricsUnavailable = false, lyricRequestGeneration = it.lyricRequestGeneration + 1)
+                    else it.copy(playback = playback)
+                }
                 observeLyrics(playback.currentTrack)
             }
         }
@@ -90,6 +98,7 @@ class PlayerViewModel(
     suspend fun close() {
         restored.await()
         withContext(ioDispatcher) { runCatching { queueStore.save(coordinator.state.value) } }
+        mutableState.update { it.copy(lyricRequestGeneration = it.lyricRequestGeneration + 1) }
         lyricsJob?.cancel()
         scope.cancel()
         coordinator.close()
@@ -104,13 +113,18 @@ class PlayerViewModel(
             return
         }
         mutableState.update { it.copy(lyrics = LocalLyricsBundle(), isLoadingLyrics = true, lyricsUnavailable = false) }
+        val generation = mutableState.value.lyricRequestGeneration
         lyricsJob = scope.launch(ioDispatcher) {
             val lyrics = runCatching { lyricsLoader.load(Path.of(track.filePath)) }.getOrDefault(LocalLyricsBundle())
+            coroutineContext.ensureActive()
             mutableState.update {
-                it.copy(
+                if (it.lyricRequestGeneration != generation || it.playback.currentTrack?.pathKey != track.pathKey ||
+                    coordinator.state.value.currentTrack?.pathKey != track.pathKey
+                ) it
+                else it.copy(
                     lyrics = lyrics,
                     isLoadingLyrics = false,
-                    lyricsUnavailable = lyrics.original.isEmpty() && lyrics.translation.isEmpty() && lyrics.romanization.isEmpty(),
+                    lyricsUnavailable = LyricVariant.entries.all { variant -> lyrics.presentation(variant).isEmpty },
                 )
             }
         }

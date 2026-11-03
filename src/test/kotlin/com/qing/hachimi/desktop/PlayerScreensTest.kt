@@ -1,19 +1,29 @@
 package com.qing.hachimi.desktop
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.key.Key
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeUp
-import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.moveBy
 import androidx.compose.ui.test.up
 import androidx.compose.ui.test.v2.runComposeUiTest
@@ -27,6 +37,7 @@ import top.yukonga.miuix.kmp.theme.ColorSchemeMode
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.ThemeController
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class PlayerScreensTest {
     @TempDir
@@ -37,11 +48,12 @@ class PlayerScreensTest {
     fun `lyric rows seek by timestamp and manual scrolling pauses follow`() = runComposeUiTest {
         val lines = (0 until 24).map { index -> TimedLyricLine(index * 1_000L, "line $index") }
         var requestedSeek: Long? = null
+        val activeIndex = mutableIntStateOf(0)
         setContent {
             MiuixTheme(controller = ThemeController(ColorSchemeMode.System)) {
                 PlayerLyricsContent(
                     lines = lines,
-                    activeIndex = 0,
+                    activeIndex = activeIndex.intValue,
                     trackKey = "test-track",
                     variant = LyricVariant.ORIGINAL,
                     onSeek = { requestedSeek = it },
@@ -49,6 +61,9 @@ class PlayerScreensTest {
             }
         }
 
+        runOnIdle { activeIndex.intValue = 12 }
+        waitForIdle()
+        onAllNodesWithTag("lyric-follow-resume").assertCountEquals(0)
         onNodeWithTag("now-playing-lyrics").performScrollToNode(hasTestTag("lyric-line-5"))
         onNodeWithTag("lyric-line-5").performClick()
         assertEquals(5_000L, requestedSeek)
@@ -109,6 +124,9 @@ class PlayerScreensTest {
         var toggles = 0
         var opens = 0
         var immersiveEntries = 0
+        var queueEntries = 0
+        var shuffle: Boolean? = null
+        var repeat: PlaybackRepeatMode? = null
         setContent {
             MiuixTheme(controller = ThemeController(ColorSchemeMode.System)) {
                 PlayerMiniBarContent(
@@ -119,18 +137,84 @@ class PlayerScreensTest {
                     onNext = {},
                     onSeek = {},
                     onOpenImmersive = { immersiveEntries++ },
+                    onOpenQueue = { queueEntries++ },
+                    onSetShuffle = { shuffle = it },
+                    onSetRepeatMode = { repeat = it },
                 )
             }
         }
 
         onNodeWithTag("player-mini-bar").assertIsDisplayed()
-        onNodeWithText("A Local Song").assertIsDisplayed()
+        onNodeWithText("A Local Song").assertIsDisplayed().performClick()
+        assertEquals(1, opens)
         onNodeWithTag("player-toggle").assertIsEnabled().performClick()
-        onNodeWithTag("player-open-now-playing").performClick()
         onNodeWithTag("player-open-immersive").performClick()
+        onNodeWithTag("player-open-queue").performClick()
+        onNodeWithText("随机：关").performClick()
+        onNodeWithText("循环：关").performClick()
+        assertEquals(1, queueEntries)
+        assertEquals(true, shuffle)
+        assertEquals(PlaybackRepeatMode.ALL, repeat)
         assertEquals(1, toggles)
         assertEquals(1, opens)
         assertEquals(1, immersiveEntries)
+    }
+
+    @OptIn(ExperimentalTestApi::class)
+    @Test
+    fun `mini player controls remain visible at narrow widths`() = runComposeUiTest {
+        var queueEntries = 0
+        var immersiveEntries = 0
+        var seeks = 0
+        setContent {
+            MiuixTheme(controller = ThemeController(ColorSchemeMode.System)) {
+                Box(Modifier.width(400.dp)) {
+                    PlayerMiniBarContent(
+                        state = PlayerUiState(),
+                        onOpenNowPlaying = {}, onPrevious = {}, onTogglePlayback = {},
+                        onNext = {}, onSeek = { seeks++ },
+                        onOpenImmersive = { immersiveEntries++ }, onOpenQueue = { queueEntries++ },
+                    )
+                }
+            }
+        }
+        listOf("player-previous", "player-toggle", "player-next", "player-open-queue", "player-open-immersive", "player-seek", "player-volume")
+            .forEach { onNodeWithTag(it).assertIsDisplayed() }
+        val bar = onNodeWithTag("player-mini-bar").fetchSemanticsNode().boundsInRoot
+        val controls = listOf("player-previous", "player-toggle", "player-next", "player-open-queue", "player-open-immersive", "player-seek", "player-volume")
+            .map { onNodeWithTag(it).fetchSemanticsNode().boundsInRoot }
+        controls.forEachIndexed { index, bounds ->
+            assertTrue(bounds.left >= bar.left && bounds.top >= bar.top && bounds.right <= bar.right && bounds.bottom <= bar.bottom, "Control $index is outside the player: $bounds")
+            controls.drop(index + 1).forEach { other ->
+                assertTrue(!(bounds.left < other.right && other.left < bounds.right && bounds.top < other.bottom && other.top < bounds.bottom), "Player controls overlap: $bounds and $other")
+            }
+        }
+        onNodeWithTag("player-seek").assertIsNotEnabled()
+        onAllNodesWithText("--:--").assertCountEquals(2)
+        onNodeWithTag("player-open-queue").performClick()
+        onNodeWithTag("player-open-immersive").performClick()
+        assertEquals(1, queueEntries)
+        assertEquals(1, immersiveEntries)
+        assertEquals(0, seeks)
+    }
+
+    @OptIn(ExperimentalTestApi::class)
+    @Test
+    fun `mini player stays content sized in a tall window`() = runComposeUiTest {
+        setContent {
+            MiuixTheme(controller = ThemeController(ColorSchemeMode.System)) {
+                Box(Modifier.requiredSize(900.dp, 1_200.dp)) {
+                    PlayerMiniBarContent(
+                        state = PlayerUiState(),
+                        onOpenNowPlaying = {}, onPrevious = {}, onTogglePlayback = {},
+                        onNext = {}, onSeek = {},
+                    )
+                }
+            }
+        }
+
+        val barHeight = onNodeWithTag("player-mini-bar").fetchSemanticsNode().size.height
+        assertTrue(barHeight < 240)
     }
 
     @OptIn(ExperimentalTestApi::class)
@@ -239,6 +323,151 @@ class PlayerScreensTest {
         assertEquals(1, toggles)
         assertEquals(1, exits)
         assertEquals(ImmersivePlayerLayout.LYRICS_FIRST, selectedLayout)
+    }
+
+
+    @OptIn(ExperimentalTestApi::class)
+    @Test
+    fun `immersive controls hide after three seconds on the test clock`() = runComposeUiTest {
+        mainClock.autoAdvance = false
+        setContent {
+            MiuixTheme(controller = ThemeController(ColorSchemeMode.System)) {
+                ImmersivePlayerContent(
+                    state = PlayerUiState(), artworkRepository = null,
+                    layout = ImmersivePlayerLayout.COVER_AND_LYRICS, reducedMotion = true,
+                    onExit = {}, onLayoutChange = {}, onPrevious = {}, onTogglePlayback = {},
+                    onNext = {}, onSeek = {}, onSetShuffle = {}, onSetRepeatMode = {},
+                    onSetVolume = {}, onPlayQueueIndex = {}, onMoveQueueItem = { _, _ -> },
+                    onRemoveQueueItem = {}, onClearQueue = {}, onSelectLyricVariant = {},
+                )
+            }
+        }
+
+        onNodeWithTag("immersive-exit").assertIsDisplayed()
+        mainClock.advanceTimeBy(2_800)
+        waitForIdle()
+        onNodeWithTag("immersive-exit").assertIsDisplayed()
+        mainClock.advanceTimeBy(240)
+        waitForIdle()
+        onNodeWithTag("immersive-exit").assertDoesNotExist()
+    }
+
+    @OptIn(ExperimentalTestApi::class)
+    @Test
+    fun `immersive controls reappear for pointer and keyboard activity`() = runComposeUiTest {
+        mainClock.autoAdvance = false
+        setContent {
+            MiuixTheme(controller = ThemeController(ColorSchemeMode.System)) {
+                ImmersivePlayerContent(
+                    state = PlayerUiState(), artworkRepository = null,
+                    layout = ImmersivePlayerLayout.COVER_AND_LYRICS, reducedMotion = true,
+                    onExit = {}, onLayoutChange = {}, onPrevious = {}, onTogglePlayback = {},
+                    onNext = {}, onSeek = {}, onSetShuffle = {}, onSetRepeatMode = {},
+                    onSetVolume = {}, onPlayQueueIndex = {}, onMoveQueueItem = { _, _ -> },
+                    onRemoveQueueItem = {}, onClearQueue = {}, onSelectLyricVariant = {},
+                    onKeyboardAction = {},
+                )
+            }
+        }
+
+        mainClock.advanceTimeBy(3_000)
+        waitForIdle()
+        onNodeWithTag("immersive-exit").assertDoesNotExist()
+
+        onNodeWithTag("immersive-player").performTouchInput { down(center); up() }
+        mainClock.advanceTimeByFrame()
+        waitForIdle()
+        onNodeWithTag("immersive-exit").assertIsDisplayed()
+
+        mainClock.advanceTimeBy(3_000)
+        waitForIdle()
+        onNodeWithTag("immersive-exit").assertDoesNotExist()
+        onNodeWithTag("immersive-player").performKeyInput { pressKey(Key.DirectionRight) }
+        mainClock.advanceTimeByFrame()
+        waitForIdle()
+        onNodeWithTag("immersive-exit").assertIsDisplayed()
+    }
+
+    @OptIn(ExperimentalTestApi::class)
+    @Test
+    fun `wide lyrics first layout expands lyrics and reduces artwork`() = runComposeUiTest {
+        val track = testTrack()
+        val state = PlayerUiState(
+            playback = PlaybackState(queue = listOf(track), queueIndex = 0, currentTrack = track),
+            lyrics = LocalLyricsBundle(original = listOf(TimedLyricLine(0, "Wide layout lyric"))),
+        )
+        val layout = mutableStateOf(ImmersivePlayerLayout.COVER_AND_LYRICS)
+        setContent {
+            MiuixTheme(controller = ThemeController(ColorSchemeMode.System)) {
+                Box(Modifier.requiredSize(900.dp, 700.dp)) {
+                    ImmersivePlayerContent(
+                        state = state, artworkRepository = null, layout = layout.value, reducedMotion = true,
+                        onExit = {}, onLayoutChange = { layout.value = it },
+                        onPrevious = {}, onTogglePlayback = {}, onNext = {}, onSeek = {},
+                        onSetShuffle = {}, onSetRepeatMode = {}, onSetVolume = {},
+                        onPlayQueueIndex = {}, onMoveQueueItem = { _, _ -> },
+                        onRemoveQueueItem = {}, onClearQueue = {}, onSelectLyricVariant = {},
+                    )
+                }
+            }
+        }
+
+        onNodeWithTag("immersive-lyrics").assertIsDisplayed()
+        onNodeWithTag("immersive-artwork-fallback").assertIsDisplayed()
+        val coverLyricsWidth = onNodeWithTag("immersive-lyrics").fetchSemanticsNode().size.width
+        val coverArtworkWidth = onNodeWithTag("immersive-artwork-fallback").fetchSemanticsNode().size.width
+
+        onNodeWithTag("immersive-layout-lyrics-first").performClick()
+
+        onNodeWithTag("immersive-lyrics").assertIsDisplayed()
+        onNodeWithText("Wide layout lyric").assertIsDisplayed()
+        onNodeWithTag("immersive-artwork-fallback").assertIsDisplayed()
+        val lyricsFirstWidth = onNodeWithTag("immersive-lyrics").fetchSemanticsNode().size.width
+        val lyricsFirstArtworkWidth = onNodeWithTag("immersive-artwork-fallback").fetchSemanticsNode().size.width
+        assertTrue(lyricsFirstWidth > coverLyricsWidth, "Lyrics pane should expand in lyrics-first mode")
+        assertTrue(lyricsFirstArtworkWidth < coverArtworkWidth, "Artwork should shrink in lyrics-first mode")
+    }
+
+    @OptIn(ExperimentalTestApi::class)
+    @Test
+    fun `compact lyrics first layout expands lyrics and reduces artwork`() = runComposeUiTest {
+        val track = testTrack()
+        val state = PlayerUiState(
+            playback = PlaybackState(queue = listOf(track), queueIndex = 0, currentTrack = track),
+            lyrics = LocalLyricsBundle(original = listOf(TimedLyricLine(0, "Compact layout lyric"))),
+        )
+        val layout = mutableStateOf(ImmersivePlayerLayout.COVER_AND_LYRICS)
+        setContent {
+            MiuixTheme(controller = ThemeController(ColorSchemeMode.System)) {
+                Box(Modifier.requiredSize(700.dp, 700.dp)) {
+                    ImmersivePlayerContent(
+                        state = state, artworkRepository = null, layout = layout.value, reducedMotion = true,
+                        onExit = {}, onLayoutChange = { layout.value = it },
+                        onPrevious = {}, onTogglePlayback = {}, onNext = {}, onSeek = {},
+                        onSetShuffle = {}, onSetRepeatMode = {}, onSetVolume = {},
+                        onPlayQueueIndex = {}, onMoveQueueItem = { _, _ -> },
+                        onRemoveQueueItem = {}, onClearQueue = {}, onSelectLyricVariant = {},
+                    )
+                }
+            }
+        }
+
+        val coverLyricsHeight = onNodeWithTag("immersive-lyrics").fetchSemanticsNode().size.height
+        val coverArtworkWidth = onNodeWithTag("immersive-artwork-fallback").fetchSemanticsNode().size.width
+        onNodeWithTag("immersive-layout-lyrics-first").performClick()
+
+        onNodeWithText("Compact layout lyric").assertIsDisplayed()
+        onNodeWithTag("immersive-play-pause").assertIsDisplayed()
+        val lyricsFirstHeight = onNodeWithTag("immersive-lyrics").fetchSemanticsNode().size.height
+        val lyricsFirstArtworkWidth = onNodeWithTag("immersive-artwork-fallback").fetchSemanticsNode().size.width
+        assertTrue(lyricsFirstHeight > coverLyricsHeight, "Lyrics pane should expand in compact lyrics-first mode")
+        assertTrue(lyricsFirstArtworkWidth < coverArtworkWidth, "Artwork should shrink in compact lyrics-first mode")
+
+        onNodeWithTag("immersive-queue-toggle").performClick()
+        onNodeWithTag("immersive-queue-toggle").performClick()
+        onNodeWithTag("immersive-lyrics").assertIsDisplayed()
+        onNodeWithTag("immersive-layout-cover-lyrics").performClick()
+        assertEquals(coverArtworkWidth, onNodeWithTag("immersive-artwork-fallback").fetchSemanticsNode().size.width)
     }
 
     @OptIn(ExperimentalTestApi::class)

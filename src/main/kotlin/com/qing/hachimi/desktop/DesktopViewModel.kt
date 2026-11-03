@@ -136,6 +136,11 @@ class DesktopViewModel(
     fun updateQuery(value: String) = mutableUi.update { it.copy(query = value) }
     fun toggleRememberLogin() = mutableUi.update { it.copy(rememberLogin = !it.rememberLogin) }
 
+    /** Persists the shell sidebar preference without emitting a settings-save message. */
+    suspend fun setSidebarCollapsed(collapsed: Boolean) {
+        taskManager.updateSidebarCollapsed(collapsed)
+    }
+
     fun setDownloadDiagnosticsEnabled(enabled: Boolean) {
         diagnosticsStore?.setEnabled(enabled)
         mutableUi.update {
