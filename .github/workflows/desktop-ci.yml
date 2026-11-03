@@ -294,7 +294,13 @@ jobs:
 
   publish-release:
     name: Publish GitHub release
-    if: github.event_name == 'workflow_dispatch' && inputs.publish_release == 'publish' && github.ref == 'refs/heads/main'
+    if: >-
+      always() &&
+      github.event_name == 'workflow_dispatch' &&
+      inputs.publish_release == 'publish' &&
+      github.ref == 'refs/heads/main' &&
+      needs.installer.result == 'success' &&
+      needs.publish-ref-guard.result == 'success'
     needs: [installer, publish-ref-guard]
     runs-on: windows-latest
     permissions:
